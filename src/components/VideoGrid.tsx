@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, RefreshCw, Server, VideoOff } from 'lucide-react';
+import { AlertCircle, RefreshCw, Server, VideoOff, ChevronDown, Loader2 } from 'lucide-react';
 import { InvidiousVideoSummary } from '../types';
 import { VideoCard } from './VideoCard';
 import { VideoGridSkeleton } from './Skeletons';
@@ -15,6 +15,9 @@ interface VideoGridProps {
   favorites?: string[]; // array of favorite videoIds
   onToggleFavorite?: (video: InvidiousVideoSummary) => void;
   onShare?: (videoId: string, title: string) => void;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 export const VideoGrid: React.FC<VideoGridProps> = ({
@@ -28,6 +31,9 @@ export const VideoGrid: React.FC<VideoGridProps> = ({
   favorites = [],
   onToggleFavorite,
   onShare,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }) => {
   if (isLoading) {
     return <VideoGridSkeleton count={12} />;
@@ -75,25 +81,51 @@ export const VideoGrid: React.FC<VideoGridProps> = ({
         </div>
         <h3 className="text-lg font-bold text-slate-200 mb-1">Aucune vidéo trouvée</h3>
         <p className="text-sm text-slate-500 max-w-sm">
-          Essayez un autre mot-clé ou collez directement une URL de vidéo YouTube dans la barre de recherche.
+          Essayez un autre mot-clé ou modifiez vos filtres de recherche.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
-      {videos.map((video) => (
-        <VideoCard
-          key={video.videoId}
-          video={video}
-          onSelectVideo={onSelectVideo}
-          onChannelClick={onChannelClick}
-          isFavorite={favorites.includes(video.videoId)}
-          onToggleFavorite={onToggleFavorite}
-          onShare={onShare}
-        />
-      ))}
+    <div className="flex flex-col gap-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
+        {videos.map((video) => (
+          <VideoCard
+            key={video.videoId}
+            video={video}
+            onSelectVideo={onSelectVideo}
+            onChannelClick={onChannelClick}
+            isFavorite={favorites.includes(video.videoId)}
+            onToggleFavorite={onToggleFavorite}
+            onShare={onShare}
+          />
+        ))}
+      </div>
+
+      {/* Load More Button */}
+      {hasMore && onLoadMore && (
+        <div className="flex justify-center pt-4 pb-8">
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
+            className="flex items-center gap-2 px-8 py-3 bg-zen-card hover:bg-zen-surface border border-zen-border hover:border-brand/40 text-slate-200 hover:text-white rounded-2xl text-sm font-semibold transition-all shadow-lg hover:shadow-brand/10 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {isLoadingMore ? (
+              <>
+                <Loader2 className="w-4 h-4 text-brand animate-spin" />
+                <span>Chargement des vidéos suivantes...</span>
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-4 h-4 text-brand" />
+                <span>Afficher plus de vidéos (+20)</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

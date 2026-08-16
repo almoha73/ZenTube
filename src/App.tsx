@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Header } from './components/Header';
 import { CategoryPills } from './components/CategoryPills';
+import { SearchFilterBar } from './components/SearchFilterBar';
 import { VideoGrid } from './components/VideoGrid';
 import { VideoPlayer } from './components/VideoPlayer';
 import { VideoDetails } from './components/VideoDetails';
@@ -36,6 +37,13 @@ export function App() {
     latency,
     activeCategory,
     searchQuery,
+    searchDate,
+    setSearchDate,
+    searchSortBy,
+    setSearchSortBy,
+    searchContinuationToken,
+    isLoadingMoreSearch,
+    loadMoreSearchResults,
     searchCorrection,
     videos,
     isLoadingVideos,
@@ -366,6 +374,15 @@ export function App() {
                     </button>
                   </div>
 
+                  {/* Search Filter Bar (Période, Tri, etc.) */}
+                  <SearchFilterBar
+                    dateFilter={searchDate}
+                    onDateChange={setSearchDate}
+                    sortFilter={searchSortBy}
+                    onSortChange={setSearchSortBy}
+                    resultCount={videos.length}
+                  />
+
                   {/* Spelling correction banner */}
                   {searchCorrection && (
                     <div className="flex items-center justify-between p-3.5 bg-brand/10 border border-brand/25 rounded-2xl animate-fade-in text-xs sm:text-sm">
@@ -449,6 +466,9 @@ export function App() {
                 favorites={favoriteIds}
                 onToggleFavorite={handleToggleFavorite}
                 onShare={handleShare}
+                hasMore={!!searchContinuationToken && !!searchQuery}
+                isLoadingMore={isLoadingMoreSearch}
+                onLoadMore={loadMoreSearchResults}
               />
             )}
           </div>

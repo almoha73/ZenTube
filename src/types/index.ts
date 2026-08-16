@@ -67,9 +67,14 @@ export interface SearchCorrection {
   originalQuery?: string;
 }
 
+export type SearchDateFilter = 'all' | 'hour' | 'today' | 'week' | 'month' | 'year';
+export type SearchSortFilter = 'relevance' | 'upload_date' | 'view_count' | 'rating';
+
 export interface SearchResultData {
   videos: InvidiousVideoSummary[];
   correction?: SearchCorrection | null;
+  continuationToken?: string | null;
+  apiKey?: string;
 }
 
 export interface ChannelPlaylist {

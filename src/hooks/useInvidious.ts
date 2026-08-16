@@ -5,6 +5,8 @@ import {
   InvidiousVideoDetail,
   InvidiousVideoSummary,
   SearchCorrection,
+  SearchDateFilter,
+  SearchSortFilter,
   VideoCategory,
 } from '../types';
 import { invidiousApi } from '../services/invidiousApi';
@@ -15,6 +17,11 @@ export function useInvidious() {
 
   const [activeCategory, setActiveCategory] = useState<VideoCategory>('trending');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchDate, setSearchDate] = useState<SearchDateFilter>('all');
+  const [searchSortBy, setSearchSortBy] = useState<SearchSortFilter>('relevance');
+  const [searchContinuationToken, setSearchContinuationToken] = useState<string | null>(null);
+  const [searchApiKey, setSearchApiKey] = useState<string>('');
+  const [isLoadingMoreSearch, setIsLoadingMoreSearch] = useState<boolean>(false);
   const [searchCorrection, setSearchCorrection] = useState<SearchCorrection | null>(null);
   const [videos, setVideos] = useState<InvidiousVideoSummary[]>([]);
   const [isLoadingVideos, setIsLoadingVideos] = useState<boolean>(true);
@@ -54,16 +61,25 @@ export function useInvidious() {
 
     setIsLoadingVideos(true);
     setVideosError(null);
+    setSearchContinuationToken(null);
 
     try {
       let results: InvidiousVideoSummary[] = [];
 
       if (searchQuery.trim()) {
-        const res = await invidiousApi.searchVideos(searchQuery.trim());
+        const res = await invidiousApi.searchVideos(
+          searchQuery.trim(),
+          1,
+          searchSortBy,
+          searchDate
+        );
         results = res.videos;
         setSearchCorrection(res.correction || null);
+        setSearchContinuationToken(res.continuationToken || null);
+        setSearchApiKey(res.apiKey || '');
       } else {
         setSearchCorrection(null);
+        setSearchContinuationToken(null);
         switch (activeCategory) {
           case 'music':
             results = await invidiousApi.getTrending('FR', 'Music');
@@ -92,9 +108,34 @@ export function useInvidious() {
     } finally {
       setIsLoadingVideos(false);
     }
-  }, [activeCategory, searchQuery]);
+  }, [activeCategory, searchQuery, searchDate, searchSortBy]);
 
-  // Refetch videos when category or search query changes
+  // Load more search results
+  const loadMoreSearchResults = useCallback(async () => {
+    if (!searchContinuationToken || isLoadingMoreSearch) return;
+
+    setIsLoadingMoreSearch(true);
+    try {
+      const res = await invidiousApi.loadMoreSearchResults(
+        searchContinuationToken,
+        searchApiKey
+      );
+      if (res.videos.length > 0) {
+        setVideos((prev) => {
+          const existingIds = new Set(prev.map((v) => v.videoId));
+          const newUnique = res.videos.filter((v) => !existingIds.has(v.videoId));
+          return [...prev, ...newUnique];
+        });
+      }
+      setSearchContinuationToken(res.nextContinuation);
+    } catch (e) {
+      console.error('Error loading more search results:', e);
+    } finally {
+      setIsLoadingMoreSearch(false);
+    }
+  }, [searchContinuationToken, searchApiKey, isLoadingMoreSearch]);
+
+  // Refetch videos when category or search query or filters change
   useEffect(() => {
     fetchVideos();
   }, [fetchVideos]);
@@ -241,6 +282,13 @@ export function useInvidious() {
     latency,
     activeCategory,
     searchQuery,
+    searchDate,
+    setSearchDate,
+    searchSortBy,
+    setSearchSortBy,
+    searchContinuationToken,
+    isLoadingMoreSearch,
+    loadMoreSearchResults,
     searchCorrection,
     videos,
     isLoadingVideos,

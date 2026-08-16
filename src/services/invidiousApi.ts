@@ -384,21 +384,32 @@ class InvidiousApiService {
   }
 
   /**
-   * Search videos with fast server-side YouTube parser, spelling correction, and Invidious fallback
+   * Search videos with fast server-side YouTube parser, filters, spelling correction, and Invidious fallback
    */
   public async searchVideos(
     query: string,
     page = 1,
     sortBy: 'relevance' | 'rating' | 'upload_date' | 'view_count' = 'relevance',
     date = 'all'
-  ): Promise<{ videos: InvidiousVideoSummary[]; correction?: any }> {
+  ): Promise<{
+    videos: InvidiousVideoSummary[];
+    correction?: any;
+    continuationToken?: string | null;
+    apiKey?: string;
+  }> {
     if (!query.trim()) return { videos: [] };
 
     const startTime = performance.now();
 
-    // 1. Try our high-speed YouTube search proxy endpoint
+    // 1. Try our high-speed YouTube search proxy endpoint with filters
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`, {
+      const params = new URLSearchParams({
+        q: query.trim(),
+        date: date || 'all',
+        sort: sortBy || 'relevance',
+      });
+
+      const res = await fetch(`/api/search?${params.toString()}`, {
         signal: AbortSignal.timeout(6000),
       });
 
@@ -406,6 +417,8 @@ class InvidiousApiService {
         const data = await res.json();
         const rawVideos = Array.isArray(data) ? data : data.videos || [];
         const correction = data.correction || null;
+        const continuationToken = data.continuationToken || null;
+        const apiKey = data.apiKey || '';
 
         if (rawVideos.length > 0) {
           this.currentLatency = Math.round(performance.now() - startTime);
@@ -413,6 +426,8 @@ class InvidiousApiService {
           return {
             videos: this.mapSummaries(rawVideos),
             correction,
+            continuationToken,
+            apiKey,
           };
         }
       }
@@ -444,6 +459,39 @@ class InvidiousApiService {
     if (matches.length > 0) return { videos: matches };
 
     return { videos: [] };
+  }
+
+  /**
+   * Load more search results using continuation token
+   */
+  public async loadMoreSearchResults(
+    continuationToken: string,
+    apiKey = ''
+  ): Promise<{ videos: InvidiousVideoSummary[]; nextContinuation: string | null }> {
+    if (!continuationToken) return { videos: [], nextContinuation: null };
+
+    try {
+      const params = new URLSearchParams({
+        token: continuationToken,
+        apiKey,
+      });
+
+      const res = await fetch(`/api/search/more?${params.toString()}`, {
+        signal: AbortSignal.timeout(6000),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          videos: this.mapSummaries(data.videos || []),
+          nextContinuation: data.nextContinuation || null,
+        };
+      }
+    } catch (e) {
+      console.warn('loadMoreSearchResults failed:', e);
+    }
+
+    return { videos: [], nextContinuation: null };
   }
 
   /**
