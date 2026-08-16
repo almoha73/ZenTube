@@ -1,17 +1,44 @@
-export default async function handler(req: any, res: any) {
+function sendJson(res: any, status: number, data: any) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.end(JSON.stringify(data));
+}
 
+function getQueryParams(req: any) {
+  if (req.query && Object.keys(req.query).length > 0) {
+    return req.query;
+  }
+  try {
+    const host = req.headers?.host || 'localhost';
+    const urlObj = new URL(req.url || '', `http://${host}`);
+    const params: Record<string, string> = {};
+    urlObj.searchParams.forEach((value, key) => {
+      params[key] = value;
+    });
+    return params;
+  } catch {
+    return {};
+  }
+}
+
+export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
+    res.statusCode = 200;
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+    res.end();
     return;
   }
 
-  const query = req.query?.q || '';
+  const params = getQueryParams(req);
+  const query = params.q || '';
 
   if (!query || !query.trim()) {
-    res.status(200).json([]);
+    sendJson(res, 200, []);
     return;
   }
 
@@ -30,11 +57,11 @@ export default async function handler(req: any, res: any) {
     if (response.ok) {
       const data = await response.json();
       const suggestions = Array.isArray(data?.[1]) ? data[1] : [];
-      res.status(200).json(suggestions);
+      sendJson(res, 200, suggestions);
       return;
     }
     throw new Error('Suggestion response not ok');
   } catch {
-    res.status(200).json([]);
+    sendJson(res, 200, []);
   }
 }

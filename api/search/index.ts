@@ -1,19 +1,46 @@
-export default async function handler(req: any, res: any) {
+function sendJson(res: any, status: number, data: any) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.end(JSON.stringify(data));
+}
 
+function getQueryParams(req: any) {
+  if (req.query && Object.keys(req.query).length > 0) {
+    return req.query;
+  }
+  try {
+    const host = req.headers?.host || 'localhost';
+    const urlObj = new URL(req.url || '', `http://${host}`);
+    const params: Record<string, string> = {};
+    urlObj.searchParams.forEach((value, key) => {
+      params[key] = value;
+    });
+    return params;
+  } catch {
+    return {};
+  }
+}
+
+export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
+    res.statusCode = 200;
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+    res.end();
     return;
   }
 
-  const query = req.query?.q;
-  const dateFilter = req.query?.date || 'all';
-  const sortFilter = req.query?.sort || 'relevance';
+  const params = getQueryParams(req);
+  const query = params.q;
+  const dateFilter = params.date || 'all';
+  const sortFilter = params.sort || 'relevance';
 
   if (!query) {
-    res.status(400).json({ error: 'Query parameter q is required', videos: [] });
+    sendJson(res, 400, { error: 'Query parameter q is required', videos: [] });
     return;
   }
 
@@ -48,6 +75,7 @@ export default async function handler(req: any, res: any) {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Cookie': 'SOCS=CAESEwgDEgk2ODE4NDMzMjEaAmZyIAEaBgiA_L20Bg; CONSENT=PENDING+999; YES+cb.20210328-17-p0.fr+FX+999',
       },
       signal: AbortSignal.timeout(6000),
     });
@@ -187,6 +215,7 @@ export default async function handler(req: any, res: any) {
                 'User-Agent':
                   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
                 'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Cookie': 'SOCS=CAESEwgDEgk2ODE4NDMzMjEaAmZyIAEaBgiA_L20Bg; CONSENT=PENDING+999; YES+cb.20210328-17-p0.fr+FX+999',
                 'X-YouTube-Client-Name': '1',
                 'X-YouTube-Client-Version': '2.20260813.05.00',
               },
@@ -285,12 +314,12 @@ export default async function handler(req: any, res: any) {
         } catch {}
       }
 
-      res.status(200).json({ videos, correction, continuationToken, apiKey });
+      sendJson(res, 200, { videos, correction, continuationToken, apiKey });
       return;
     }
 
     throw new Error('No search results parser match');
   } catch (error: any) {
-    res.status(502).json({ error: error.message || 'Search failed', videos: [] });
+    sendJson(res, 502, { error: error.message || 'Search failed', videos: [] });
   }
 }

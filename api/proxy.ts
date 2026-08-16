@@ -1,17 +1,38 @@
+function getQueryParams(req: any) {
+  if (req.query && Object.keys(req.query).length > 0) {
+    return req.query;
+  }
+  try {
+    const host = req.headers?.host || 'localhost';
+    const urlObj = new URL(req.url || '', `http://${host}`);
+    const params: Record<string, string> = {};
+    urlObj.searchParams.forEach((value, key) => {
+      params[key] = value;
+    });
+    return params;
+  } catch {
+    return {};
+  }
+}
+
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
 
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
+    res.statusCode = 200;
+    res.end();
     return;
   }
 
-  const targetUrl = req.query?.url;
+  const params = getQueryParams(req);
+  const targetUrl = params.url;
 
   if (!targetUrl) {
-    res.status(400).json({ error: 'Missing url parameter' });
+    res.statusCode = 400;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: 'Missing url parameter' }));
     return;
   }
 
@@ -31,10 +52,12 @@ export default async function handler(req: any, res: any) {
     clearTimeout(timeout);
 
     const data = await response.text();
-    res.status(response.status);
+    res.statusCode = response.status;
     res.setHeader('Content-Type', response.headers.get('content-type') || 'application/json');
-    res.send(data);
+    res.end(data);
   } catch (error: any) {
-    res.status(502).json({ error: error.message || 'Proxy request failed' });
+    res.statusCode = 502;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: error.message || 'Proxy request failed' }));
   }
 }
