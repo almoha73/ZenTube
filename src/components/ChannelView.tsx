@@ -25,7 +25,7 @@ import { invidiousApi } from '../services/invidiousApi';
 interface ChannelViewProps {
   channel: ChannelData | null;
   isLoading: boolean;
-  onSelectVideo: (videoId: string) => void;
+  onSelectVideo: (videoId: string, queue?: InvidiousVideoSummary[]) => void;
   onBack: () => void;
   isSubscribed: boolean;
   onToggleSubscribe: (authorId: string, authorName: string) => void;
@@ -437,7 +437,7 @@ export const ChannelView: React.FC<ChannelViewProps> = ({
 
             {selectedPlaylist.videos.length > 0 && (
               <button
-                onClick={() => onSelectVideo(selectedPlaylist.videos[0].videoId)}
+                onClick={() => onSelectVideo(selectedPlaylist.videos[0].videoId, selectedPlaylist.videos)}
                 className="flex items-center gap-2 px-6 py-3 bg-brand hover:bg-brand-600 text-white rounded-2xl text-xs font-bold transition-all shadow-lg shadow-brand/25 cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-current" />
@@ -452,7 +452,7 @@ export const ChannelView: React.FC<ChannelViewProps> = ({
               <VideoCard
                 key={video.videoId}
                 video={video}
-                onSelectVideo={onSelectVideo}
+                onSelectVideo={(id) => onSelectVideo(id, selectedPlaylist.videos)}
                 onChannelClick={() => {}}
                 isFavorite={favorites.includes(video.videoId)}
                 onToggleFavorite={onToggleFavorite}
@@ -605,7 +605,7 @@ export const ChannelView: React.FC<ChannelViewProps> = ({
                     <VideoCard
                       key={video.videoId}
                       video={video}
-                      onSelectVideo={onSelectVideo}
+                      onSelectVideo={(id) => onSelectVideo(id, channelSearchResults)}
                       onChannelClick={() => {}}
                       isFavorite={favorites.includes(video.videoId)}
                       onToggleFavorite={onToggleFavorite}
@@ -636,7 +636,7 @@ export const ChannelView: React.FC<ChannelViewProps> = ({
                   <VideoCard
                     key={video.videoId}
                     video={video}
-                    onSelectVideo={onSelectVideo}
+                    onSelectVideo={(id) => onSelectVideo(id, videosList)}
                     onChannelClick={() => {}}
                     isFavorite={favorites.includes(video.videoId)}
                     onToggleFavorite={onToggleFavorite}

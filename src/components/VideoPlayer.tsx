@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Play,
   Pause,
+  SkipBack,
+  SkipForward,
   Volume2,
   Volume1,
   VolumeX,
@@ -18,6 +20,7 @@ import {
   Server,
   Tv,
   Check,
+  Sparkles,
 } from 'lucide-react';
 import { InvidiousFormatStream, InvidiousVideoDetail } from '../types';
 import { formatDuration } from '../utils/formatters';
@@ -31,6 +34,12 @@ interface VideoPlayerProps {
   onToggleTheater?: () => void;
   onSwitchInstance?: () => void;
   currentInstance: string;
+  onNextVideo?: () => void;
+  onPreviousVideo?: () => void;
+  hasNextVideo?: boolean;
+  hasPreviousVideo?: boolean;
+  isAutoplay?: boolean;
+  onToggleAutoplay?: () => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -42,6 +51,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onToggleTheater,
   onSwitchInstance,
   currentInstance,
+  onNextVideo,
+  onPreviousVideo,
+  hasNextVideo = false,
+  hasPreviousVideo = false,
+  isAutoplay = true,
+  onToggleAutoplay,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -258,6 +273,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         return;
       }
 
+      // Shift + N -> Next video
+      if (e.shiftKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        if (onNextVideo) onNextVideo();
+        return;
+      }
+
+      // Shift + P -> Previous video
+      if (e.shiftKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        if (onPreviousVideo) onPreviousVideo();
+        return;
+      }
+
       switch (e.key.toLowerCase()) {
         case ' ':
         case 'k':
@@ -305,7 +334,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePlay, toggleFullscreen, toggleMute, skipTime, volume, onToggleTheater]);
+  }, [togglePlay, toggleFullscreen, toggleMute, skipTime, volume, onToggleTheater, onNextVideo, onPreviousVideo]);
 
   // Hide controls on idle
   const handleMouseMove = () => {
@@ -489,30 +518,55 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             {/* Bottom Control Bar */}
             <div className="flex items-center justify-between text-slate-100 pt-1">
-              {/* Left group: Play/Pause, Rewind, Forward, Volume, Time */}
-              <div className="flex items-center gap-1 sm:gap-2">
+              {/* Left group: Previous, Play/Pause, Next, Rewind, Forward, Volume, Time */}
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                {/* Previous track / video button */}
+                <button
+                  type="button"
+                  onClick={onPreviousVideo}
+                  disabled={!hasPreviousVideo}
+                  className="p-1.5 hover:bg-white/15 rounded-xl transition-colors cursor-pointer text-slate-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                  title={hasPreviousVideo ? 'Morceau / Vidéo précédente (Maj+P)' : 'Aucune vidéo précédente'}
+                >
+                  <SkipBack className="w-5 h-5 fill-current" />
+                </button>
+
+                {/* Play / Pause button */}
                 <button
                   type="button"
                   onClick={togglePlay}
-                  className="p-2 hover:bg-white/15 rounded-xl transition-colors cursor-pointer"
+                  className="p-2 hover:bg-white/15 rounded-xl transition-colors cursor-pointer text-white"
                   title={isPlaying ? 'Pause (Espace/K)' : 'Lecture (Espace/K)'}
                 >
                   {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
                 </button>
 
+                {/* Next track / video button */}
+                <button
+                  type="button"
+                  onClick={onNextVideo}
+                  disabled={!hasNextVideo}
+                  className="p-1.5 hover:bg-white/15 rounded-xl transition-colors cursor-pointer text-slate-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                  title={hasNextVideo ? 'Morceau / Vidéo suivante (Maj+N)' : 'Aucune vidéo suivante'}
+                >
+                  <SkipForward className="w-5 h-5 fill-current" />
+                </button>
+
+                {/* 10s Rewind */}
                 <button
                   type="button"
                   onClick={() => skipTime(-10)}
-                  className="p-1.5 hover:bg-white/15 rounded-xl transition-colors cursor-pointer text-slate-300 hover:text-white"
+                  className="p-1.5 hover:bg-white/15 rounded-xl transition-colors cursor-pointer text-slate-300 hover:text-white hidden sm:flex"
                   title="Reculer de 10s (J)"
                 >
                   <RotateCcw className="w-4 h-4" />
                 </button>
 
+                {/* 10s Forward */}
                 <button
                   type="button"
                   onClick={() => skipTime(10)}
-                  className="p-1.5 hover:bg-white/15 rounded-xl transition-colors cursor-pointer text-slate-300 hover:text-white"
+                  className="p-1.5 hover:bg-white/15 rounded-xl transition-colors cursor-pointer text-slate-300 hover:text-white hidden sm:flex"
                   title="Avancer de 10s (L)"
                 >
                   <RotateCw className="w-4 h-4" />
@@ -554,8 +608,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 </div>
               </div>
 
-              {/* Right group: Loop, Settings (Quality/Speed), Theater, PiP, Fullscreen */}
+              {/* Right group: Autoplay, Loop, Settings, Theater, PiP, Fullscreen */}
               <div className="relative flex items-center gap-1 sm:gap-2">
+                {/* Autoplay Toggle */}
+                {onToggleAutoplay && (
+                  <button
+                    type="button"
+                    onClick={onToggleAutoplay}
+                    className={`p-1.5 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-xs font-semibold ${
+                      isAutoplay
+                        ? 'text-brand bg-brand/15 ring-1 ring-brand/30'
+                        : 'text-slate-400 hover:text-white hover:bg-white/15'
+                    }`}
+                    title={
+                      isAutoplay
+                        ? 'Lecture automatique activée (enchaîne au morceau suivant)'
+                        : 'Activer la lecture automatique'
+                    }
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span className="hidden xl:inline text-[10px] uppercase font-bold tracking-wider">
+                      Auto
+                    </span>
+                  </button>
+                )}
+
                 {/* Loop toggle */}
                 <button
                   type="button"

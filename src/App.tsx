@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   ArrowLeft,
   Flame,
@@ -71,8 +71,10 @@ export function App() {
   const [favorites, setFavorites] = useLocalStorage<FavoriteItem[]>('zentube_favorites', []);
   const [history, setHistory] = useLocalStorage<WatchHistoryItem[]>('zentube_history', []);
   const [subscriptions, setSubscriptions] = useLocalStorage<string[]>('zentube_subscriptions', []);
+  const [isAutoplay, setIsAutoplay] = useLocalStorage<boolean>('zentube_autoplay', true);
 
-  // UI state
+  // Playback Queue & UI state
+  const [activeQueue, setActiveQueue] = useState<InvidiousVideoSummary[]>([]);
   const [isInstanceModalOpen, setIsInstanceModalOpen] = useState(false);
   const [isTheaterMode, setIsTheaterMode] = useState(false);
   const [resumeTime, setResumeTime] = useState<number>(0);
@@ -91,9 +93,15 @@ export function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Handler to play video with optional seek time
+  // Handler to play video with optional seek time and active queue context
   const handlePlayVideo = useCallback(
-    (videoId: string, seek = 0) => {
+    (videoId: string, seek = 0, queueContext?: InvidiousVideoSummary[]) => {
+      if (queueContext && queueContext.length > 0) {
+        setActiveQueue(queueContext);
+      } else if (videos.length > 0 && activeQueue.length === 0) {
+        setActiveQueue(videos);
+      }
+
       if (seek === 0) {
         const existing = history.find((h) => h.videoId === videoId);
         if (existing && existing.currentTime > 5 && existing.progressPercent < 95) {
@@ -106,8 +114,83 @@ export function App() {
       }
       playVideo(videoId);
     },
-    [history, playVideo]
+    [history, playVideo, videos, activeQueue]
   );
+
+  // Compute Next and Previous Video based on active context
+  const nextVideo: InvidiousVideoSummary | undefined = useMemo(() => {
+    if (!selectedVideoId) return undefined;
+
+    // 1. Check in activeQueue first
+    const queueIdx = activeQueue.findIndex((v) => v.videoId === selectedVideoId);
+    if (queueIdx !== -1 && queueIdx + 1 < activeQueue.length) {
+      return activeQueue[queueIdx + 1];
+    }
+
+    // 2. Check in recommended videos
+    if (videoDetails?.recommendedVideos && videoDetails.recommendedVideos.length > 0) {
+      return videoDetails.recommendedVideos[0];
+    }
+
+    // 3. Check in main videos list
+    const gridIdx = videos.findIndex((v) => v.videoId === selectedVideoId);
+    if (gridIdx !== -1 && gridIdx + 1 < videos.length) {
+      return videos[gridIdx + 1];
+    }
+
+    return undefined;
+  }, [selectedVideoId, activeQueue, videoDetails, videos]);
+
+  const prevVideo: InvidiousVideoSummary | undefined = useMemo(() => {
+    if (!selectedVideoId) return undefined;
+
+    // 1. Check in activeQueue
+    const queueIdx = activeQueue.findIndex((v) => v.videoId === selectedVideoId);
+    if (queueIdx > 0) {
+      return activeQueue[queueIdx - 1];
+    }
+
+    // 2. Check in watch history
+    const histIdx = history.findIndex((h) => h.videoId === selectedVideoId);
+    if (histIdx !== -1 && histIdx + 1 < history.length) {
+      const hItem = history[histIdx + 1];
+      return {
+        videoId: hItem.videoId,
+        title: hItem.title,
+        author: hItem.author,
+        authorId: hItem.authorId,
+        videoThumbnails: [{ url: hItem.thumbnailUrl, quality: 'medium', width: 320, height: 180 }],
+        viewCount: 0,
+        published: 0,
+        publishedText: '',
+        lengthSeconds: hItem.lengthSeconds,
+      };
+    }
+
+    return undefined;
+  }, [selectedVideoId, activeQueue, history]);
+
+  // Next / Previous / Autoplay Handlers
+  const handleNextVideo = useCallback(() => {
+    if (nextVideo) {
+      handlePlayVideo(nextVideo.videoId);
+      addToast('info', `Morceau suivant : ${nextVideo.title}`);
+    }
+  }, [nextVideo, handlePlayVideo, addToast]);
+
+  const handlePreviousVideo = useCallback(() => {
+    if (prevVideo) {
+      handlePlayVideo(prevVideo.videoId);
+      addToast('info', `Morceau précédent : ${prevVideo.title}`);
+    }
+  }, [prevVideo, handlePlayVideo, addToast]);
+
+  const handleVideoEnd = useCallback(() => {
+    if (isAutoplay && nextVideo) {
+      handlePlayVideo(nextVideo.videoId);
+      addToast('info', `Lecture auto : ${nextVideo.title}`);
+    }
+  }, [isAutoplay, nextVideo, handlePlayVideo, addToast]);
 
   // Toggle Favorite
   const handleToggleFavorite = useCallback(
@@ -320,10 +403,26 @@ export function App() {
                   video={videoDetails}
                   initialTime={resumeTime}
                   onTimeUpdate={handleProgressUpdate}
+                  onVideoEnd={handleVideoEnd}
                   isTheaterMode={isTheaterMode}
                   onToggleTheater={() => setIsTheaterMode(!isTheaterMode)}
                   onSwitchInstance={() => setIsInstanceModalOpen(true)}
                   currentInstance={currentInstance}
+                  onNextVideo={handleNextVideo}
+                  onPreviousVideo={handlePreviousVideo}
+                  hasNextVideo={!!nextVideo}
+                  hasPreviousVideo={!!prevVideo}
+                  isAutoplay={isAutoplay}
+                  onToggleAutoplay={() => {
+                    const nextVal = !isAutoplay;
+                    setIsAutoplay(nextVal);
+                    addToast(
+                      'info',
+                      nextVal
+                        ? 'Lecture automatique activée (enchaîne au morceau suivant)'
+                        : 'Lecture automatique désactivée'
+                    );
+                  }}
                 />
 
                 {/* Details & Comments & Related */}
@@ -338,6 +437,7 @@ export function App() {
                   isSubscribed={isCurrentAuthorSubscribed}
                   onToggleSubscribe={handleToggleSubscribe}
                   onShare={handleShare}
+                  nextVideo={nextVideo}
                 />
               </div>
             ) : null}
@@ -347,7 +447,7 @@ export function App() {
           <ChannelView
             channel={channelData}
             isLoading={isLoadingChannel}
-            onSelectVideo={(id) => handlePlayVideo(id)}
+            onSelectVideo={(id, queue) => handlePlayVideo(id, 0, queue)}
             onBack={closeChannel}
             isSubscribed={subscriptions.includes(selectedChannelId)}
             onToggleSubscribe={handleToggleSubscribe}

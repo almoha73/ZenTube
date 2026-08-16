@@ -13,6 +13,7 @@ import {
   Eye,
   ExternalLink,
   Sparkles,
+  SkipForward,
 } from 'lucide-react';
 import { InvidiousComment, InvidiousVideoDetail, InvidiousVideoSummary } from '../types';
 import {
@@ -36,6 +37,7 @@ interface VideoDetailsProps {
   isSubscribed: boolean;
   onToggleSubscribe: (authorId: string, authorName: string) => void;
   onShare: (videoId: string, title: string) => void;
+  nextVideo?: InvidiousVideoSummary | null;
 }
 
 export const VideoDetails: React.FC<VideoDetailsProps> = ({
@@ -49,6 +51,7 @@ export const VideoDetails: React.FC<VideoDetailsProps> = ({
   isSubscribed,
   onToggleSubscribe,
   onShare,
+  nextVideo,
 }) => {
   const [isDescExpanded, setIsDescExpanded] = useState(false);
   const [downloadModalOpen, setDownloadModalOpen] = useState(false);
@@ -295,6 +298,53 @@ export const VideoDetails: React.FC<VideoDetailsProps> = ({
           {isDescExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </button>
       </div>
+
+      {/* Up Next Banner if available */}
+      {nextVideo && (
+        <div className="flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-zen-card via-brand/10 to-zen-card border border-zen-border shadow-lg animate-fade-in">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div
+              onClick={() => onSelectVideo(nextVideo.videoId)}
+              className="relative w-24 h-14 rounded-xl overflow-hidden bg-zen-surface shrink-0 cursor-pointer group"
+            >
+              <img
+                src={getBestThumbnailUrl(nextVideo.videoThumbnails, nextVideo.videoId)}
+                alt=""
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+              />
+              {nextVideo.lengthSeconds > 0 && (
+                <div className="absolute right-1 bottom-1 px-1 rounded bg-black/80 text-[10px] font-mono text-white">
+                  {formatDuration(nextVideo.lengthSeconds)}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-brand uppercase tracking-wider">
+                <Sparkles className="w-3 h-3" />
+                <span>À suivre ensuite</span>
+              </div>
+              <span
+                onClick={() => onSelectVideo(nextVideo.videoId)}
+                className="text-xs sm:text-sm font-bold text-white truncate hover:text-brand transition-colors cursor-pointer"
+              >
+                {nextVideo.title}
+              </span>
+              <span className="text-xs text-slate-400 truncate">
+                {nextVideo.author}
+              </span>
+            </div>
+          </div>
+
+          <button
+            onClick={() => onSelectVideo(nextVideo.videoId)}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-brand hover:bg-brand-600 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-brand/25 shrink-0 cursor-pointer ml-3"
+          >
+            <span>Lire</span>
+            <SkipForward className="w-3.5 h-3.5 fill-current" />
+          </button>
+        </div>
+      )}
 
       {/* Comments Section */}
       <CommentsList comments={comments} isLoading={isLoadingComments} />
