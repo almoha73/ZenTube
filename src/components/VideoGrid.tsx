@@ -1,5 +1,5 @@
-import React from 'react';
-import { AlertCircle, RefreshCw, Server, VideoOff, ChevronDown, Loader2 } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { AlertCircle, RefreshCw, Server, VideoOff, Loader2 } from 'lucide-react';
 import { InvidiousVideoSummary } from '../types';
 import { VideoCard } from './VideoCard';
 import { VideoGridSkeleton } from './Skeletons';
@@ -35,6 +35,36 @@ export const VideoGrid: React.FC<VideoGridProps> = ({
   isLoadingMore = false,
   onLoadMore,
 }) => {
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Automatic Infinite Scroll with IntersectionObserver
+  useEffect(() => {
+    if (!hasMore || !onLoadMore || isLoadingMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
+          onLoadMore();
+        }
+      },
+      {
+        rootMargin: '500px', // Preload ahead of reaching the very bottom
+        threshold: 0.05,
+      }
+    );
+
+    const currentSentinel = sentinelRef.current;
+    if (currentSentinel) {
+      observer.observe(currentSentinel);
+    }
+
+    return () => {
+      if (currentSentinel) {
+        observer.unobserve(currentSentinel);
+      }
+    };
+  }, [hasMore, onLoadMore, isLoadingMore]);
+
   if (isLoading) {
     return <VideoGridSkeleton count={12} />;
   }
@@ -88,7 +118,7 @@ export const VideoGrid: React.FC<VideoGridProps> = ({
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
         {videos.map((video) => (
           <VideoCard
@@ -103,27 +133,21 @@ export const VideoGrid: React.FC<VideoGridProps> = ({
         ))}
       </div>
 
-      {/* Load More Button */}
-      {hasMore && onLoadMore && (
-        <div className="flex justify-center pt-4 pb-8">
-          <button
-            type="button"
-            onClick={onLoadMore}
-            disabled={isLoadingMore}
-            className="flex items-center gap-2 px-8 py-3 bg-zen-card hover:bg-zen-surface border border-zen-border hover:border-brand/40 text-slate-200 hover:text-white rounded-2xl text-sm font-semibold transition-all shadow-lg hover:shadow-brand/10 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-          >
-            {isLoadingMore ? (
-              <>
-                <Loader2 className="w-4 h-4 text-brand animate-spin" />
-                <span>Chargement des vidéos suivantes...</span>
-              </>
-            ) : (
-              <>
-                <ChevronDown className="w-4 h-4 text-brand" />
-                <span>Afficher plus de vidéos (+20)</span>
-              </>
-            )}
-          </button>
+      {/* Infinite Scroll Sentinel & Subtle Loading Indicator */}
+      {hasMore && (
+        <div ref={sentinelRef} className="flex justify-center items-center py-8">
+          {isLoadingMore ? (
+            <div className="flex items-center gap-3 px-6 py-3 bg-zen-card/90 backdrop-blur-md border border-zen-border rounded-2xl shadow-xl animate-fade-in">
+              <Loader2 className="w-5 h-5 text-brand animate-spin" />
+              <span className="text-xs font-semibold text-slate-200">
+                Chargement automatique de la suite...
+              </span>
+            </div>
+          ) : (
+            <div className="h-6 w-full flex justify-center items-center text-xs text-slate-600 opacity-40">
+              <span>Faites défiler pour voir plus de vidéos</span>
+            </div>
+          )}
         </div>
       )}
     </div>

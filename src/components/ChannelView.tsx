@@ -181,6 +181,37 @@ export const ChannelView: React.FC<ChannelViewProps> = ({
     }
   };
 
+  // Automatic Infinite Scroll for Channel Videos
+  const channelSentinelRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!continuationToken || !handleLoadMore || isLoadingMore || activeTab !== 'videos' || activeSearchQuery)
+      return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && continuationToken && !isLoadingMore) {
+          handleLoadMore();
+        }
+      },
+      {
+        rootMargin: '500px',
+        threshold: 0.05,
+      }
+    );
+
+    const currentSentinel = channelSentinelRef.current;
+    if (currentSentinel) {
+      observer.observe(currentSentinel);
+    }
+
+    return () => {
+      if (currentSentinel) {
+        observer.unobserve(currentSentinel);
+      }
+    };
+  }, [continuationToken, isLoadingMore, activeTab, activeSearchQuery, handleLoadMore]);
+
   if (isLoading) {
     return (
       <div className="flex flex-col gap-6 animate-fade-in">
@@ -614,26 +645,21 @@ export const ChannelView: React.FC<ChannelViewProps> = ({
                 ))}
               </div>
 
-              {/* Load More Button */}
-              <div className="flex justify-center pt-4 pb-10">
+              {/* Infinite Scroll Sentinel & Loading Indicator */}
+              <div ref={channelSentinelRef} className="flex justify-center items-center pt-4 pb-10">
                 {continuationToken ? (
-                  <button
-                    onClick={handleLoadMore}
-                    disabled={isLoadingMore}
-                    className="flex items-center gap-2.5 px-8 py-3.5 bg-zen-card hover:bg-brand text-slate-200 hover:text-white border border-zen-border hover:border-brand rounded-2xl text-sm font-bold transition-all duration-200 shadow-xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105"
-                  >
-                    {isLoadingMore ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin text-brand" />
-                        <span>Chargement des 30 vidéos suivantes...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-4 h-4" />
-                        <span>Charger plus de vidéos (+30) — {videosList.length} affichées</span>
-                      </>
-                    )}
-                  </button>
+                  isLoadingMore ? (
+                    <div className="flex items-center gap-3 px-6 py-3 bg-zen-card/90 backdrop-blur-md border border-zen-border rounded-2xl shadow-xl animate-fade-in">
+                      <Loader2 className="w-5 h-5 animate-spin text-brand" />
+                      <span className="text-xs font-semibold text-slate-200">
+                        Chargement automatique de la suite (+30)...
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="h-6 w-full flex justify-center items-center text-xs text-slate-600 opacity-40">
+                      <span>Faites défiler pour charger plus de vidéos</span>
+                    </div>
+                  )
                 ) : videosList.length > 0 ? (
                   <div className="flex items-center gap-2 px-5 py-2.5 bg-zen-card/50 border border-zen-border/50 rounded-2xl text-xs font-semibold text-slate-400">
                     <Check className="w-4 h-4 text-emerald-400" />
