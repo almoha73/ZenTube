@@ -42,6 +42,59 @@ interface VideoPlayerProps {
   onToggleAutoplay?: () => void;
 }
 
+// Robust helper functions for true OS native fullscreen across all browser engines
+const getFullscreenElement = (): Element | null => {
+  return (
+    document.fullscreenElement ||
+    (document as any).webkitFullscreenElement ||
+    (document as any).mozFullScreenElement ||
+    (document as any).msFullscreenElement ||
+    null
+  );
+};
+
+const enterNativeFullscreen = async (element: HTMLElement) => {
+  const options = { navigationUI: 'hide' as const };
+  try {
+    if (element.requestFullscreen) {
+      await element.requestFullscreen(options);
+    } else if ((element as any).webkitRequestFullscreen) {
+      await (element as any).webkitRequestFullscreen();
+    } else if ((element as any).mozRequestFullScreen) {
+      await (element as any).mozRequestFullScreen();
+    } else if ((element as any).msRequestFullscreen) {
+      await (element as any).msRequestFullscreen();
+    }
+  } catch (err) {
+    console.warn('Container requestFullscreen failed, trying documentElement:', err);
+    try {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen(options);
+      } else if ((document.documentElement as any).webkitRequestFullscreen) {
+        await (document.documentElement as any).webkitRequestFullscreen();
+      }
+    } catch (e2) {
+      console.warn('DocumentElement fallback failed:', e2);
+    }
+  }
+};
+
+const exitNativeFullscreen = async () => {
+  try {
+    if (document.exitFullscreen) {
+      await document.exitFullscreen();
+    } else if ((document as any).webkitExitFullscreen) {
+      await (document as any).webkitExitFullscreen();
+    } else if ((document as any).mozCancelFullScreen) {
+      await (document as any).mozCancelFullScreen();
+    } else if ((document as any).msExitFullscreen) {
+      await (document as any).msExitFullscreen();
+    }
+  } catch (err) {
+    console.warn('exitFullscreen error:', err);
+  }
+};
+
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   video,
   initialTime = 0,
@@ -202,6 +255,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   // Quality switch (retains current playback time)
+  // Quality switch (retains current playback time)
   const handleQualityChange = (format: InvidiousFormatStream) => {
     if (!videoRef.current || selectedFormat?.url === format.url) return;
     const cur = videoRef.current.currentTime;
@@ -221,15 +275,54 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }, 100);
   };
 
-  // Fullscreen toggle
-  const toggleFullscreen = useCallback(() => {
+  // Fullscreen change listener across all browser engines
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const fsElem = getFullscreenElement();
+      setIsFullscreen(fsElem !== null);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, []);
+
+  // Fullscreen toggle (invokes native OS Fullscreen API hiding browser bars)
+  const toggleFullscreen = useCallback(async () => {
     if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(console.warn);
+    if (!getFullscreenElement()) {
+      await enterNativeFullscreen(containerRef.current);
     } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(console.warn);
+      await exitNativeFullscreen();
     }
   }, []);
+
+  // Single click (Play/Pause) vs Double click (Plein écran)
+  const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleVideoClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+        clickTimeoutRef.current = null;
+        toggleFullscreen();
+      } else {
+        clickTimeoutRef.current = setTimeout(() => {
+          togglePlay();
+          clickTimeoutRef.current = null;
+        }, 240);
+      }
+    },
+    [togglePlay, toggleFullscreen]
+  );
 
   // PiP toggle
   const togglePiP = async () => {
@@ -377,8 +470,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ref={containerRef}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => isPlaying && !showSettingsMenu && setShowControls(false)}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        toggleFullscreen();
+      }}
       className={`relative select-none bg-black overflow-hidden group shadow-2xl transition-all duration-300 ${
-        isTheaterMode ? 'w-full aspect-[21/9] sm:aspect-video max-h-[80vh]' : 'w-full aspect-video rounded-3xl'
+        isFullscreen
+          ? 'fixed inset-0 w-screen h-screen z-[99999] rounded-none max-h-none shadow-none m-0 p-0'
+          : isTheaterMode
+          ? 'w-full aspect-[21/9] sm:aspect-video max-h-[80vh] rounded-3xl'
+          : 'w-full aspect-video rounded-3xl'
       }`}
     >
       {/* Video Element OR Embed Fallback */}
@@ -386,7 +487,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <video
           ref={videoRef}
           src={selectedFormat.url}
-          onClick={togglePlay}
+          onClick={handleVideoClick}
           onLoadedMetadata={handleLoadedMetadata}
           onTimeUpdate={handleTimeUpdate}
           onEnded={() => {
@@ -396,16 +497,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onError={handleVideoError}
           loop={isLooping}
           playsInline
-          className="w-full h-full object-contain cursor-pointer"
+          className={`w-full h-full object-contain cursor-pointer ${isFullscreen ? 'rounded-none' : ''}`}
         />
       ) : (
-        <iframe
-          src={`https://www.youtube-nocookie.com/embed/${video.videoId}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1&origin=${typeof window !== 'undefined' ? encodeURIComponent(window.location.origin) : ''}&hl=fr`}
-          title={video.title}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowFullScreen
-          className="w-full h-full border-0"
-        />
+        <div className="relative w-full h-full">
+          <iframe
+            src={`https://www.youtube-nocookie.com/embed/${video.videoId}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1&origin=${typeof window !== 'undefined' ? encodeURIComponent(window.location.origin) : ''}&hl=fr`}
+            title={video.title}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+            allowFullScreen
+            className="w-full h-full border-0"
+          />
+          {/* Floating Fullscreen button for embed mode */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="absolute top-3 right-3 p-2 rounded-xl bg-black/75 hover:bg-brand text-white border border-white/10 shadow-xl backdrop-blur-md transition-all cursor-pointer z-20"
+            title={isFullscreen ? 'Quitter le plein écran (F / Echap)' : 'Vrai plein écran complet (F)'}
+          >
+            {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+          </button>
+        </div>
       )}
 
       {/* Stream Error Modal Overlay */}
@@ -777,7 +889,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     className={`hidden md:block p-1.5 rounded-xl transition-colors cursor-pointer ${
                       isTheaterMode ? 'text-brand bg-brand/10' : 'text-slate-300 hover:text-white hover:bg-white/15'
                     }`}
-                    title="Mode Théâtre (T)"
+                    title={
+                      isTheaterMode
+                        ? 'Quitter le mode Cinéma (T)'
+                        : 'Mode Cinéma / Grand écran (T) — Pour le plein écran complet, appuyez sur F ou cliquez sur Plein Écran'
+                    }
                   >
                     <Tv className="w-4 h-4" />
                   </button>
@@ -800,7 +916,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   type="button"
                   onClick={toggleFullscreen}
                   className="p-1.5 hover:bg-white/15 rounded-xl transition-colors cursor-pointer text-slate-300 hover:text-white"
-                  title={isFullscreen ? 'Quitter le plein écran (F)' : 'Plein écran (F)'}
+                  title={
+                    isFullscreen
+                      ? 'Quitter le plein écran (F / Échap)'
+                      : 'Vrai plein écran complet (F / Double-clic)'
+                  }
                 >
                   {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
                 </button>
