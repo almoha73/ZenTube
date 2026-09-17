@@ -162,6 +162,39 @@ export function extractYouTubeVideoId(input: string): string | null {
 }
 
 /**
+ * Extract YouTube Playlist ID from URL or string
+ * Supports:
+ * - https://www.youtube.com/playlist?list=PLxxxxxxxx
+ * - https://www.youtube.com/watch?v=xxxx&list=PLxxxxxxxx
+ * - https://youtu.be/xxxx?list=PLxxxxxxxx
+ * - PLxxxxxxxx, UUxxxxxxxx, etc.
+ */
+export function extractYouTubePlaylistId(input: string): string | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+
+  // Direct Playlist ID pattern (usually starts with PL, UU, LL, FL, RD, OLAK5uy_, etc.)
+  if (/^(PL|UU|LL|FL|RD|OLAK5uy_)[a-zA-Z0-9_-]{10,}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+    const listParam = url.searchParams.get('list');
+    if (listParam && /^[a-zA-Z0-9_-]{10,}$/.test(listParam)) {
+      return listParam;
+    }
+  } catch {
+    const match = trimmed.match(/[?&]list=([a-zA-Z0-9_-]{10,})/i);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+
+  return null;
+}
+
+/**
  * Get highest resolution thumbnail URL with fallbacks
  */
 export function getBestThumbnailUrl(thumbnails: InvidiousThumbnail[] | undefined, videoId?: string): string {

@@ -7,6 +7,7 @@ import { VideoCategory } from '../types';
 interface HeaderProps {
   onSearch: (query: string) => void;
   onPlayVideo: (videoId: string) => void;
+  onOpenPlaylist?: (playlistId: string) => void;
   onSelectCategory: (cat: VideoCategory) => void;
   activeCategory: VideoCategory;
   currentInstance: string;
@@ -19,6 +20,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   onSearch,
   onPlayVideo,
+  onOpenPlaylist,
   onSelectCategory,
   activeCategory,
   currentInstance,
@@ -57,6 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
           <SearchBar
             onSearch={onSearch}
             onPlayVideo={onPlayVideo}
+            onOpenPlaylist={onOpenPlaylist}
             initialQuery={initialQuery}
           />
         </div>

@@ -11,12 +11,13 @@ import {
 // Curated list of reliable, high-uptime public Invidious instances
 export const DEFAULT_INSTANCES: string[] = [
   'https://yewtu.be',
+  'https://invidious.protokolla.fi',
+  'https://invidious.f5.si',
   'https://invidious.nerdvpn.de',
   'https://invidious.privacydev.net',
   'https://invidious.drgns.space',
   'https://yt.chocolatemoo53.com',
   'https://invidious.tiekoetter.com',
-  'https://invidious.protokolla.fi',
   'https://iv.ggtyler.dev',
   'https://inv.nadeko.net',
   'https://vid.puffyan.us',

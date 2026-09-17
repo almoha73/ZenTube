@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Sparkles,
   ArrowRight,
+  ListMusic,
 } from 'lucide-react';
 import { Header } from './components/Header';
 import { CategoryPills } from './components/CategoryPills';
@@ -23,12 +24,22 @@ import { VideoDetails } from './components/VideoDetails';
 import { FavoritesView } from './components/FavoritesView';
 import { HistoryView } from './components/HistoryView';
 import { ChannelView } from './components/ChannelView';
+import { PlaylistView } from './components/PlaylistView';
 import { InstanceModal } from './components/InstanceModal';
 import { PlayerSkeleton } from './components/Skeletons';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { useInvidious } from './hooks/useInvidious';
 import { useLocalStorage } from './hooks/useLocalStorage';
-import { FavoriteItem, InvidiousVideoSummary, WatchHistoryItem } from './types';
+import {
+  ChannelPlaylist,
+  FavoriteItem,
+  FavoritePlaylistItem,
+  InvidiousVideoSummary,
+  PlaylistDetail,
+  SubscriptionItem,
+  WatchHistoryItem,
+} from './types';
+import { invidiousApi } from './services/invidiousApi';
 import { getBestThumbnailUrl } from './utils/formatters';
 
 export function App() {
@@ -69,12 +80,48 @@ export function App() {
 
   // Local Storage States
   const [favorites, setFavorites] = useLocalStorage<FavoriteItem[]>('zentube_favorites', []);
+  const [favoritePlaylists, setFavoritePlaylists] = useLocalStorage<FavoritePlaylistItem[]>(
+    'zentube_favorite_playlists',
+    []
+  );
   const [history, setHistory] = useLocalStorage<WatchHistoryItem[]>('zentube_history', []);
-  const [subscriptions, setSubscriptions] = useLocalStorage<string[]>('zentube_subscriptions', []);
+  const [subscriptions, setSubscriptions] = useLocalStorage<SubscriptionItem[]>(
+    'zentube_subscriptions',
+    []
+  );
   const [isAutoplay, setIsAutoplay] = useLocalStorage<boolean>('zentube_autoplay', true);
+  const [isShuffle, setIsShuffle] = useLocalStorage<boolean>('zentube_shuffle', false);
+
+  // Auto-migrate subscriptions if old format (string[]) was stored
+  useEffect(() => {
+    if (Array.isArray(subscriptions) && subscriptions.length > 0) {
+      const hasOldFormat = subscriptions.some((s: any) => typeof s === 'string');
+      if (hasOldFormat) {
+        setSubscriptions((prev: any) =>
+          prev.map((s: any) =>
+            typeof s === 'string'
+              ? { authorId: s, author: s, subscribedAt: Date.now() }
+              : s
+          )
+        );
+      }
+    }
+  }, [subscriptions, setSubscriptions]);
+
+  // Helper to shuffle an array
+  const shuffleArray = useCallback(<T,>(arr: T[]): T[] => {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  }, []);
 
   // Playback Queue & UI state
   const [activeQueue, setActiveQueue] = useState<InvidiousVideoSummary[]>([]);
+  const [selectedPlaylist, setSelectedPlaylist] = useState<PlaylistDetail | null>(null);
+  const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
   const [isInstanceModalOpen, setIsInstanceModalOpen] = useState(false);
   const [isTheaterMode, setIsTheaterMode] = useState(false);
   const [resumeTime, setResumeTime] = useState<number>(0);
@@ -170,13 +217,35 @@ export function App() {
     return undefined;
   }, [selectedVideoId, activeQueue, history]);
 
+  // Toggle Shuffle
+  const handleToggleShuffle = useCallback(() => {
+    const nextVal = !isShuffle;
+    setIsShuffle(nextVal);
+    addToast(
+      'info',
+      nextVal
+        ? 'Lecture aléatoire activée (les morceaux s’enchaînent au hasard)'
+        : 'Lecture aléatoire désactivée'
+    );
+  }, [isShuffle, setIsShuffle, addToast]);
+
   // Next / Previous / Autoplay Handlers
   const handleNextVideo = useCallback(() => {
+    if (isShuffle && activeQueue.length > 1) {
+      const candidates = activeQueue.filter((v) => v.videoId !== selectedVideoId);
+      if (candidates.length > 0) {
+        const pick = candidates[Math.floor(Math.random() * candidates.length)];
+        handlePlayVideo(pick.videoId, 0);
+        addToast('info', `Aléatoire : ${pick.title}`);
+        return;
+      }
+    }
+
     if (nextVideo) {
       handlePlayVideo(nextVideo.videoId);
       addToast('info', `Morceau suivant : ${nextVideo.title}`);
     }
-  }, [nextVideo, handlePlayVideo, addToast]);
+  }, [isShuffle, activeQueue, selectedVideoId, nextVideo, handlePlayVideo, addToast]);
 
   const handlePreviousVideo = useCallback(() => {
     if (prevVideo) {
@@ -186,11 +255,23 @@ export function App() {
   }, [prevVideo, handlePlayVideo, addToast]);
 
   const handleVideoEnd = useCallback(() => {
-    if (isAutoplay && nextVideo) {
-      handlePlayVideo(nextVideo.videoId);
-      addToast('info', `Lecture auto : ${nextVideo.title}`);
+    if (isAutoplay) {
+      if (isShuffle && activeQueue.length > 1) {
+        const candidates = activeQueue.filter((v) => v.videoId !== selectedVideoId);
+        if (candidates.length > 0) {
+          const pick = candidates[Math.floor(Math.random() * candidates.length)];
+          handlePlayVideo(pick.videoId, 0);
+          addToast('info', `Lecture aléatoire auto : ${pick.title}`);
+          return;
+        }
+      }
+
+      if (nextVideo) {
+        handlePlayVideo(nextVideo.videoId);
+        addToast('info', `Lecture auto : ${nextVideo.title}`);
+      }
     }
-  }, [isAutoplay, nextVideo, handlePlayVideo, addToast]);
+  }, [isAutoplay, isShuffle, activeQueue, selectedVideoId, nextVideo, handlePlayVideo, addToast]);
 
   // Toggle Favorite
   const handleToggleFavorite = useCallback(
@@ -226,20 +307,211 @@ export function App() {
     [setFavorites, addToast]
   );
 
+  // Open Playlist handler
+  const handleOpenPlaylist = useCallback(
+    async (playlistId: string) => {
+      setIsLoadingPlaylist(true);
+      closeVideo();
+      try {
+        const details = await invidiousApi.getPlaylistDetails(playlistId);
+        setSelectedPlaylist(details);
+      } catch (e: any) {
+        addToast(
+          'error',
+          `Erreur lors du chargement de la playlist : ${e?.message || 'inaccessible'}`
+        );
+      } finally {
+        setIsLoadingPlaylist(false);
+      }
+    },
+    [closeVideo, addToast]
+  );
+
+  const handleClosePlaylist = useCallback(() => {
+    setSelectedPlaylist(null);
+  }, []);
+
+  // Play an entire playlist directly (starts playback with first video and sets active queue)
+  const handlePlayPlaylist = useCallback(
+    async (playlist: FavoritePlaylistItem) => {
+      if (playlist.videos && playlist.videos.length > 0) {
+        handlePlayVideo(playlist.videos[0].videoId, 0, playlist.videos);
+        addToast('info', `Lecture de la playlist : ${playlist.title}`);
+        return;
+      }
+
+      setIsLoadingPlaylist(true);
+      try {
+        const details = await invidiousApi.getPlaylistDetails(playlist.playlistId);
+        setSelectedPlaylist(details);
+        if (details.videos && details.videos.length > 0) {
+          handlePlayVideo(details.videos[0].videoId, 0, details.videos);
+          addToast('info', `Lecture de la playlist : ${playlist.title}`);
+        } else {
+          addToast('error', 'Cette playlist ne contient aucune vidéo.');
+        }
+      } catch (e: any) {
+        addToast('error', `Impossible de lire la playlist : ${e?.message || 'erreur'}`);
+      } finally {
+        setIsLoadingPlaylist(false);
+      }
+    },
+    [handlePlayVideo, addToast]
+  );
+
+  // Toggle Favorite Playlist
+  const handleToggleFavoritePlaylist = useCallback(
+    (playlist: ChannelPlaylist | PlaylistDetail | FavoritePlaylistItem) => {
+      const exists = favoritePlaylists.some((p) => p.playlistId === playlist.playlistId);
+      if (exists) {
+        setFavoritePlaylists((prev) => prev.filter((p) => p.playlistId !== playlist.playlistId));
+        addToast('info', 'Playlist retirée de vos favoris.');
+      } else {
+        const author =
+          'author' in playlist && playlist.author
+            ? playlist.author
+            : channelData?.author || 'YouTube';
+        const authorId =
+          'authorId' in playlist && playlist.authorId
+            ? playlist.authorId
+            : channelData?.authorId;
+        const pVideos = 'videos' in playlist ? playlist.videos : undefined;
+        const videoCount =
+          pVideos && pVideos.length > 0
+            ? `${pVideos.length} vidéo${pVideos.length > 1 ? 's' : ''}`
+            : playlist.videoCount || 'Playlist';
+        const thumbnailUrl =
+          playlist.thumbnailUrl ||
+          (pVideos && pVideos[0]?.videoThumbnails?.[0]?.url) ||
+          '';
+        const firstVideoId =
+          'firstVideoId' in playlist && playlist.firstVideoId
+            ? playlist.firstVideoId
+            : pVideos && pVideos[0]?.videoId
+            ? pVideos[0].videoId
+            : undefined;
+
+        const newItem: FavoritePlaylistItem = {
+          playlistId: playlist.playlistId,
+          title: playlist.title || 'Playlist',
+          author,
+          authorId,
+          thumbnailUrl,
+          videoCount,
+          savedAt: Date.now(),
+          firstVideoId,
+        };
+        setFavoritePlaylists((prev) => [newItem, ...prev]);
+        addToast('success', 'Playlist ajoutée à vos favoris !');
+      }
+    },
+    [favoritePlaylists, setFavoritePlaylists, channelData, addToast]
+  );
+
+  // Remove Favorite Playlist
+  const handleRemoveFavoritePlaylist = useCallback(
+    (playlistId: string) => {
+      setFavoritePlaylists((prev) => prev.filter((p) => p.playlistId !== playlistId));
+      addToast('info', 'Playlist retirée de vos favoris.');
+    },
+    [setFavoritePlaylists, addToast]
+  );
+
+  // Clear all Favorite Playlists
+  const handleClearFavoritePlaylists = useCallback(() => {
+    setFavoritePlaylists([]);
+    addToast('info', 'Toutes vos playlists favorites ont été effacées.');
+  }, [setFavoritePlaylists, addToast]);
+
+  // Play all favorite videos in shuffle mode
+  const handlePlayShuffleVideos = useCallback(
+    (favItems: FavoriteItem[]) => {
+      if (favItems.length === 0) return;
+      const summaries: InvidiousVideoSummary[] = favItems.map((item) => ({
+        videoId: item.videoId,
+        title: item.title,
+        author: item.author,
+        authorId: item.authorId,
+        videoThumbnails: [{ url: item.thumbnailUrl, quality: 'medium', width: 320, height: 180 }],
+        viewCount: item.viewCount || 0,
+        published: 0,
+        publishedText: '',
+        lengthSeconds: item.lengthSeconds,
+      }));
+      const shuffled = shuffleArray(summaries);
+      setIsShuffle(true);
+      handlePlayVideo(shuffled[0].videoId, 0, shuffled);
+      addToast('success', 'Lecture aléatoire de vos favoris lancée !');
+    },
+    [shuffleArray, handlePlayVideo, setIsShuffle, addToast]
+  );
+
+  // Play a playlist in shuffle mode
+  const handlePlayShufflePlaylist = useCallback(
+    async (playlistOrVideos: FavoritePlaylistItem | PlaylistDetail | InvidiousVideoSummary[]) => {
+      setIsLoadingPlaylist(true);
+      try {
+        let vids: InvidiousVideoSummary[] = [];
+        let title = 'Playlist';
+
+        if (Array.isArray(playlistOrVideos)) {
+          vids = playlistOrVideos;
+        } else if ('videos' in playlistOrVideos && playlistOrVideos.videos && playlistOrVideos.videos.length > 0) {
+          vids = playlistOrVideos.videos;
+          title = playlistOrVideos.title;
+        } else if ('playlistId' in playlistOrVideos) {
+          title = playlistOrVideos.title;
+          const details = await invidiousApi.getPlaylistDetails(playlistOrVideos.playlistId);
+          vids = details.videos;
+          setSelectedPlaylist(details);
+        }
+
+        if (vids.length > 0) {
+          const shuffled = shuffleArray(vids);
+          setIsShuffle(true);
+          handlePlayVideo(shuffled[0].videoId, 0, shuffled);
+          addToast('success', `Lecture aléatoire lancée : ${title}`);
+        } else {
+          addToast('error', 'Cette playlist ne contient aucune vidéo.');
+        }
+      } catch (e: any) {
+        addToast('error', `Impossible de charger la playlist : ${e?.message || 'erreur'}`);
+      } finally {
+        setIsLoadingPlaylist(false);
+      }
+    },
+    [shuffleArray, handlePlayVideo, setIsShuffle, addToast]
+  );
+
   // Toggle local Channel Subscription
   const handleToggleSubscribe = useCallback(
-    (authorId: string, authorName: string) => {
-      const isSub = subscriptions.includes(authorId);
+    (authorId: string, authorName?: string, authorThumbnail?: string) => {
+      const isSub = subscriptions.some((s) => (typeof s === 'string' ? s : s.authorId) === authorId);
       if (isSub) {
-        setSubscriptions((prev) => prev.filter((id) => id !== authorId));
-        addToast('info', `Désabonné de ${authorName}.`);
+        setSubscriptions((prev) => prev.filter((s) => (typeof s === 'string' ? s : s.authorId) !== authorId));
+        addToast('info', `Désabonné de ${authorName || 'la chaîne'}.`);
       } else {
-        setSubscriptions((prev) => [...prev, authorId]);
-        addToast('success', `Abonné à ${authorName} (sauvegardé localement) !`);
+        const newSub: SubscriptionItem = {
+          authorId,
+          author: authorName || authorId,
+          authorThumbnail,
+          subscribedAt: Date.now(),
+        };
+        setSubscriptions((prev) => [...prev, newSub]);
+        addToast('success', `Abonné à ${authorName || authorId} (sauvegardé localement) !`);
       }
     },
     [subscriptions, setSubscriptions, addToast]
   );
+
+  // Clear all subscriptions
+  const handleClearSubscriptions = useCallback(() => {
+    if (subscriptions.length === 0) return;
+    if (confirm('Voulez-vous vraiment supprimer tous vos abonnements enregistrés ?')) {
+      setSubscriptions([]);
+      addToast('info', 'Tous les abonnements ont été supprimés.');
+    }
+  }, [subscriptions.length, setSubscriptions, addToast]);
 
   // Share handler
   const handleShare = useCallback(
@@ -323,13 +595,198 @@ export function App() {
   // Clear all favorites
   const handleClearFavorites = useCallback(() => {
     setFavorites([]);
-    addToast('info', 'Tous vos favoris ont été effacés.');
+    addToast('info', 'Toutes vos vidéos favorites ont été effacées.');
   }, [setFavorites, addToast]);
+
+  // Export all favorites & playlists as JSON backup
+  const handleExportData = useCallback(() => {
+    const data = {
+      app: 'ZenTube',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      favorites,
+      favoritePlaylists,
+      subscriptions,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.download = `zentube-favoris-${dateStr}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    addToast('success', 'Sauvegarde téléchargée avec succès !');
+  }, [favorites, favoritePlaylists, subscriptions, addToast]);
+
+  // Import favorites & playlists from JSON backup
+  const handleImportData = useCallback(
+    (imported: any) => {
+      if (!imported || typeof imported !== 'object') {
+        addToast('error', 'Fichier de sauvegarde invalide.');
+        return;
+      }
+
+      let addedVideos = 0;
+      let addedPlaylists = 0;
+
+      // Handle raw array of videos or full backup object
+      const importedVideos: FavoriteItem[] = Array.isArray(imported)
+        ? imported
+        : Array.isArray(imported.favorites)
+        ? imported.favorites
+        : [];
+
+      const importedPlaylists: FavoritePlaylistItem[] = Array.isArray(imported.favoritePlaylists)
+        ? imported.favoritePlaylists
+        : [];
+
+      if (importedVideos.length > 0) {
+        setFavorites((prev) => {
+          const existingIds = new Set(prev.map((item) => item.videoId));
+          const newItems = importedVideos.filter(
+            (item) => item && item.videoId && !existingIds.has(item.videoId)
+          );
+          addedVideos = newItems.length;
+          return [...newItems, ...prev];
+        });
+      }
+
+      if (importedPlaylists.length > 0) {
+        setFavoritePlaylists((prev) => {
+          const existingIds = new Set(prev.map((p) => p.playlistId));
+          const newItems = importedPlaylists.filter(
+            (p) => p && p.playlistId && !existingIds.has(p.playlistId)
+          );
+          addedPlaylists = newItems.length;
+          return [...newItems, ...prev];
+        });
+      }
+
+      let addedSubs = 0;
+      if (Array.isArray(imported.subscriptions) && imported.subscriptions.length > 0) {
+        setSubscriptions((prev) => {
+          const currentIds = new Set(prev.map((s) => (typeof s === 'string' ? s : s.authorId)));
+          const validSubs: SubscriptionItem[] = imported.subscriptions
+            .map((s: any) => {
+              if (typeof s === 'string') {
+                return { authorId: s, author: s, subscribedAt: Date.now() };
+              }
+              if (s && s.authorId) {
+                return s as SubscriptionItem;
+              }
+              return null;
+            })
+            .filter((s: any): s is SubscriptionItem => s !== null && !currentIds.has(s.authorId));
+          addedSubs = validSubs.length;
+          return [...prev, ...validSubs];
+        });
+      }
+
+      if (addedVideos === 0 && addedPlaylists === 0 && addedSubs === 0) {
+        if (importedVideos.length > 0 || importedPlaylists.length > 0 || (imported.subscriptions && imported.subscriptions.length > 0)) {
+          addToast('info', 'Tous les éléments du fichier sont déjà enregistrés.');
+        } else {
+          addToast('error', 'Aucun favori valide trouvé dans ce fichier.');
+        }
+      } else {
+        const parts: string[] = [];
+        if (addedVideos > 0) parts.push(`${addedVideos} vidéo(s)`);
+        if (addedPlaylists > 0) parts.push(`${addedPlaylists} playlist(s)`);
+        if (addedSubs > 0) parts.push(`${addedSubs} abonnement(s)`);
+        addToast('success', `Importation réussie : ${parts.join(', ')} ajouté(s) !`);
+      }
+    },
+    [setFavorites, setFavoritePlaylists, setSubscriptions, addToast]
+  );
+
+  // Google Drive state & automatic check
+  const [isGdriveAvailable, setIsGdriveAvailable] = useState(false);
+  const [isSyncingGdrive, setIsSyncingGdrive] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/gdrive-status')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.available) {
+          setIsGdriveAvailable(true);
+        }
+      })
+      .catch(() => setIsGdriveAvailable(false));
+  }, []);
+
+  // Sync to Google Drive /ZenTube folder
+  const handleSyncGdrive = useCallback(async () => {
+    setIsSyncingGdrive(true);
+    try {
+      const payload = {
+        app: 'ZenTube',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        favorites,
+        favoritePlaylists,
+        subscriptions,
+      };
+
+      const res = await fetch('/api/gdrive-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        addToast('success', 'Favoris synchronisés dans le dossier « ZenTube » de votre Google Drive !');
+      } else {
+        throw new Error(json.error || 'Erreur inconnue');
+      }
+    } catch (err: any) {
+      addToast('error', `Erreur Google Drive : ${err.message || err}`);
+    } finally {
+      setIsSyncingGdrive(false);
+    }
+  }, [favorites, favoritePlaylists, subscriptions, addToast]);
+
+  // Restore from Google Drive /ZenTube folder
+  const handleRestoreGdrive = useCallback(async () => {
+    setIsSyncingGdrive(true);
+    try {
+      const res = await fetch('/api/gdrive-restore');
+      const json = await res.json();
+      if (res.ok && json.success && json.data) {
+        handleImportData(json.data);
+      } else {
+        throw new Error(json.error || 'Aucune sauvegarde trouvée.');
+      }
+    } catch (err: any) {
+      addToast('error', `Erreur Google Drive : ${err.message || err}`);
+    } finally {
+      setIsSyncingGdrive(false);
+    }
+  }, [handleImportData, addToast]);
+
+  const onSearchQuery = useCallback(
+    (query: string) => {
+      setSelectedPlaylist(null);
+      handleSearch(query);
+    },
+    [handleSearch]
+  );
+
+  const onSelectCategoryWrapper = useCallback(
+    (cat: any) => {
+      setSelectedPlaylist(null);
+      handleSelectCategory(cat);
+    },
+    [handleSelectCategory]
+  );
 
   const favoriteIds = favorites.map((f) => f.videoId);
   const isCurrentVideoFavorite = selectedVideoId ? favoriteIds.includes(selectedVideoId) : false;
   const isCurrentAuthorSubscribed = videoDetails?.authorId
-    ? subscriptions.includes(videoDetails.authorId)
+    ? subscriptions.some((s) => (typeof s === 'string' ? s : s.authorId) === videoDetails.authorId)
     : false;
 
   return (
@@ -339,21 +796,30 @@ export function App() {
 
       {/* Top Header */}
       <Header
-        onSearch={handleSearch}
+        onSearch={onSearchQuery}
         onPlayVideo={(id) => handlePlayVideo(id)}
-        onSelectCategory={handleSelectCategory}
+        onOpenPlaylist={handleOpenPlaylist}
+        onSelectCategory={onSelectCategoryWrapper}
         activeCategory={activeCategory}
         currentInstance={currentInstance}
         latency={latency}
         onOpenInstanceModal={() => setIsInstanceModalOpen(true)}
-        favoritesCount={favorites.length}
+        favoritesCount={favorites.length + favoritePlaylists.length}
         initialQuery={searchQuery}
       />
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
-        {/* 1. Selected Video Player View */}
-        {selectedVideoId ? (
+        {/* Loading playlist state */}
+        {isLoadingPlaylist ? (
+          <div className="flex flex-col items-center justify-center py-24 gap-4 animate-fade-in">
+            <div className="w-14 h-14 rounded-2xl bg-brand/20 text-brand flex items-center justify-center animate-bounce shadow-lg shadow-brand/20">
+              <ListMusic className="w-7 h-7" />
+            </div>
+            <p className="text-sm font-semibold text-slate-200">Chargement de la playlist...</p>
+          </div>
+        ) : selectedVideoId ? (
+          /* 1. Selected Video Player View */
           <div className="flex flex-col gap-6 animate-fade-in">
             {/* Back button */}
             <div className="flex items-center justify-between">
@@ -384,13 +850,13 @@ export function App() {
                 <div className="flex gap-3">
                   <button
                     onClick={() => handlePlayVideo(selectedVideoId)}
-                    className="px-4 py-2 bg-brand text-white text-xs font-semibold rounded-xl"
+                    className="px-4 py-2 bg-brand text-white text-xs font-semibold rounded-xl cursor-pointer"
                   >
                     Réessayer
                   </button>
                   <button
                     onClick={() => setIsInstanceModalOpen(true)}
-                    className="px-4 py-2 bg-zen-surface border border-zen-border text-white text-xs font-semibold rounded-xl"
+                    className="px-4 py-2 bg-zen-surface border border-zen-border text-white text-xs font-semibold rounded-xl cursor-pointer"
                   >
                     Changer d'instance
                   </button>
@@ -410,7 +876,7 @@ export function App() {
                   currentInstance={currentInstance}
                   onNextVideo={handleNextVideo}
                   onPreviousVideo={handlePreviousVideo}
-                  hasNextVideo={!!nextVideo}
+                  hasNextVideo={isShuffle ? activeQueue.length > 1 || !!nextVideo : !!nextVideo}
                   hasPreviousVideo={!!prevVideo}
                   isAutoplay={isAutoplay}
                   onToggleAutoplay={() => {
@@ -423,6 +889,8 @@ export function App() {
                         : 'Lecture automatique désactivée'
                     );
                   }}
+                  isShuffle={isShuffle}
+                  onToggleShuffle={handleToggleShuffle}
                 />
 
                 {/* Details & Comments & Related */}
@@ -442,21 +910,40 @@ export function App() {
               </div>
             ) : null}
           </div>
+        ) : selectedPlaylist ? (
+          /* 2. Playlist View */
+          <PlaylistView
+            playlist={selectedPlaylist}
+            onBack={handleClosePlaylist}
+            onSelectVideo={(id, queue) => handlePlayVideo(id, 0, queue)}
+            onPlayShuffle={(videos) => handlePlayShufflePlaylist(videos)}
+            onChannelClick={(chId, chName) => {
+              handleClosePlaylist();
+              openChannel(chId, chName);
+            }}
+            isFavorite={favoritePlaylists.some((p) => p.playlistId === selectedPlaylist.playlistId)}
+            onToggleFavoritePlaylist={handleToggleFavoritePlaylist}
+            onShare={handleShare}
+            favorites={favoriteIds}
+            onToggleFavoriteVideo={handleToggleFavorite}
+          />
         ) : selectedChannelId ? (
-          /* 2. Channel View */
+          /* 3. Channel View */
           <ChannelView
             channel={channelData}
             isLoading={isLoadingChannel}
             onSelectVideo={(id, queue) => handlePlayVideo(id, 0, queue)}
             onBack={closeChannel}
-            isSubscribed={subscriptions.includes(selectedChannelId)}
+            isSubscribed={subscriptions.some((s) => (typeof s === 'string' ? s : s.authorId) === selectedChannelId)}
             onToggleSubscribe={handleToggleSubscribe}
             onShare={handleShare}
             favorites={favoriteIds}
             onToggleFavorite={handleToggleFavorite}
+            favoritePlaylistIds={favoritePlaylists.map((p) => p.playlistId)}
+            onToggleFavoritePlaylist={handleToggleFavoritePlaylist}
           />
         ) : (
-          /* 3. Grid Views (Trending / Categories / Favorites / History) */
+          /* 4. Grid Views (Trending / Categories / Favorites / History) */
           <div className="flex flex-col gap-6">
             {/* Category Filter Pills & Search status */}
             <div className="flex flex-col gap-3">
@@ -533,8 +1020,8 @@ export function App() {
               ) : (
                 <CategoryPills
                   activeCategory={activeCategory}
-                  onSelectCategory={handleSelectCategory}
-                  favoritesCount={favorites.length}
+                  onSelectCategory={onSelectCategoryWrapper}
+                  favoritesCount={favorites.length + favoritePlaylists.length + subscriptions.length}
                 />
               )}
             </div>
@@ -543,9 +1030,26 @@ export function App() {
             {activeCategory === 'favorites' && !searchQuery ? (
               <FavoritesView
                 favorites={favorites}
+                favoritePlaylists={favoritePlaylists}
+                subscriptions={subscriptions}
                 onSelectVideo={(id) => handlePlayVideo(id)}
+                onOpenPlaylist={handleOpenPlaylist}
+                onPlayPlaylist={handlePlayPlaylist}
+                onPlayShuffleVideos={handlePlayShuffleVideos}
+                onPlayShufflePlaylist={handlePlayShufflePlaylist}
                 onRemoveFavorite={handleRemoveFavorite}
+                onRemoveFavoritePlaylist={handleRemoveFavoritePlaylist}
                 onClearAll={handleClearFavorites}
+                onClearPlaylists={handleClearFavoritePlaylists}
+                onOpenChannel={(chId, chName) => openChannel(chId, chName)}
+                onUnsubscribe={(chId, chName) => handleToggleSubscribe(chId, chName)}
+                onClearSubscriptions={handleClearSubscriptions}
+                onExportData={handleExportData}
+                onImportData={handleImportData}
+                isGdriveAvailable={isGdriveAvailable}
+                isSyncingGdrive={isSyncingGdrive}
+                onSyncGdrive={handleSyncGdrive}
+                onRestoreGdrive={handleRestoreGdrive}
               />
             ) : activeCategory === 'history' && !searchQuery ? (
               <HistoryView

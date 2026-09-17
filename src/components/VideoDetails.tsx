@@ -25,6 +25,7 @@ import {
 } from '../utils/formatters';
 import { CommentsList } from './CommentsList';
 import { VideoCard } from './VideoCard';
+import { DownloadModal } from './DownloadModal';
 
 interface VideoDetailsProps {
   video: InvidiousVideoDetail;
@@ -35,7 +36,7 @@ interface VideoDetailsProps {
   isFavorite: boolean;
   onToggleFavorite: (video: InvidiousVideoSummary) => void;
   isSubscribed: boolean;
-  onToggleSubscribe: (authorId: string, authorName: string) => void;
+  onToggleSubscribe: (authorId: string, authorName: string, authorThumbnail?: string) => void;
   onShare: (videoId: string, title: string) => void;
   nextVideo?: InvidiousVideoSummary | null;
 }
@@ -161,7 +162,7 @@ export const VideoDetails: React.FC<VideoDetailsProps> = ({
 
           <button
             type="button"
-            onClick={() => onToggleSubscribe(video.authorId || video.author, video.author)}
+            onClick={() => onToggleSubscribe(video.authorId || video.author, video.author, authorAvatar || undefined)}
             className={`ml-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 flex items-center gap-1.5 shadow-md cursor-pointer ${
               isSubscribed
                 ? 'bg-zen-surface hover:bg-zen-hover text-slate-300 border border-zen-border'
@@ -216,46 +217,16 @@ export const VideoDetails: React.FC<VideoDetailsProps> = ({
             <span>Partager</span>
           </button>
 
-          {/* Download streams dropdown toggle */}
-          {video.formatStreams && video.formatStreams.length > 0 && (
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setDownloadModalOpen(!downloadModalOpen)}
-                className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-zen-card hover:bg-zen-surface text-slate-200 border border-zen-border/60 hover:border-slate-600 transition-colors cursor-pointer"
-                title="Télécharger la vidéo"
-              >
-                <Download className="w-4 h-4" />
-                <span className="hidden sm:inline">Télécharger</span>
-              </button>
-
-              {downloadModalOpen && (
-                <div className="absolute right-0 top-full mt-2 w-64 bg-zen-card/95 backdrop-blur-xl border border-zen-border rounded-2xl shadow-2xl p-2 z-40 text-xs animate-slide-up">
-                  <div className="px-3 py-2 border-b border-zen-border text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                    Flux disponibles
-                  </div>
-                  <div className="flex flex-col gap-1 pt-1 max-h-48 overflow-y-auto">
-                    {video.formatStreams.map((fmt, i) => (
-                      <a
-                        key={i}
-                        href={fmt.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        download={`${video.title}.mp4`}
-                        onClick={() => setDownloadModalOpen(false)}
-                        className="flex items-center justify-between p-2 rounded-xl hover:bg-zen-surface text-slate-300 hover:text-white transition-colors"
-                      >
-                        <span className="font-semibold text-brand">
-                          {fmt.qualityLabel || fmt.resolution || 'MP4 direct'}
-                        </span>
-                        <span className="text-[10px] text-slate-500 uppercase">{fmt.container}</span>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+          {/* Download */}
+          <button
+            type="button"
+            onClick={() => setDownloadModalOpen(true)}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-zen-card hover:bg-zen-surface text-slate-200 border border-zen-border/60 hover:border-slate-600 transition-colors cursor-pointer"
+            title="Télécharger la vidéo ou l'audio MP3"
+          >
+            <Download className="w-4 h-4 text-brand" />
+            <span className="hidden sm:inline">Télécharger</span>
+          </button>
         </div>
       </div>
 
@@ -372,6 +343,13 @@ export const VideoDetails: React.FC<VideoDetailsProps> = ({
           </div>
         </div>
       )}
+
+      {/* Download Modal */}
+      <DownloadModal
+        isOpen={downloadModalOpen}
+        onClose={() => setDownloadModalOpen(false)}
+        video={video}
+      />
     </div>
   );
 };

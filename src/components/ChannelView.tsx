@@ -16,6 +16,8 @@ import {
   Plus,
   Layers,
   X,
+  Heart,
+  Shuffle,
 } from 'lucide-react';
 import { ChannelData, ChannelPlaylist, InvidiousVideoSummary, PlaylistDetail } from '../types';
 import { VideoCard } from './VideoCard';
@@ -28,10 +30,12 @@ interface ChannelViewProps {
   onSelectVideo: (videoId: string, queue?: InvidiousVideoSummary[]) => void;
   onBack: () => void;
   isSubscribed: boolean;
-  onToggleSubscribe: (authorId: string, authorName: string) => void;
+  onToggleSubscribe: (authorId: string, authorName: string, authorThumbnail?: string) => void;
   onShare: (title: string, url: string) => void;
   favorites: string[];
   onToggleFavorite: (video: InvidiousVideoSummary) => void;
+  favoritePlaylistIds?: string[];
+  onToggleFavoritePlaylist?: (playlist: ChannelPlaylist | PlaylistDetail) => void;
 }
 
 export const ChannelView: React.FC<ChannelViewProps> = ({
@@ -44,6 +48,8 @@ export const ChannelView: React.FC<ChannelViewProps> = ({
   onShare,
   favorites,
   onToggleFavorite,
+  favoritePlaylistIds = [],
+  onToggleFavoritePlaylist,
 }) => {
   const [activeTab, setActiveTab] = useState<'videos' | 'playlists'>('videos');
   const [searchQuery, setSearchQuery] = useState('');
@@ -365,7 +371,7 @@ export const ChannelView: React.FC<ChannelViewProps> = ({
             {/* Action Buttons */}
             <div className="flex items-center gap-3 w-full sm:w-auto pt-2 sm:pt-0">
               <button
-                onClick={() => onToggleSubscribe(channel.authorId, channel.author)}
+                onClick={() => onToggleSubscribe(channel.authorId, channel.author, channel.authorThumbnail)}
                 className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-6 py-2.5 rounded-2xl text-xs font-bold transition-all duration-200 cursor-pointer shadow-lg ${
                   isSubscribed
                     ? 'bg-zen-surface hover:bg-rose-500/20 text-slate-200 hover:text-rose-400 border border-zen-border hover:border-rose-500/30'
@@ -435,15 +441,61 @@ export const ChannelView: React.FC<ChannelViewProps> = ({
               </div>
             </div>
 
-            {selectedPlaylist.videos.length > 0 && (
-              <button
-                onClick={() => onSelectVideo(selectedPlaylist.videos[0].videoId, selectedPlaylist.videos)}
-                className="flex items-center gap-2 px-6 py-3 bg-brand hover:bg-brand-600 text-white rounded-2xl text-xs font-bold transition-all shadow-lg shadow-brand/25 cursor-pointer"
-              >
-                <Play className="w-4 h-4 fill-current" />
-                <span>Tout lire</span>
-              </button>
-            )}
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              {onToggleFavoritePlaylist && (
+                <button
+                  type="button"
+                  onClick={() => onToggleFavoritePlaylist(selectedPlaylist)}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer border ${
+                    favoritePlaylistIds.includes(selectedPlaylist.playlistId)
+                      ? 'bg-brand text-white border-brand shadow-lg shadow-brand/25 hover:bg-brand-600'
+                      : 'bg-zen-surface hover:bg-brand/15 text-slate-200 border-zen-border hover:border-brand/40 hover:text-white'
+                  }`}
+                  title={
+                    favoritePlaylistIds.includes(selectedPlaylist.playlistId)
+                      ? 'Retirer de mes favoris'
+                      : 'Mettre cette playlist en favoris'
+                  }
+                >
+                  <Heart
+                    className={`w-4 h-4 ${
+                      favoritePlaylistIds.includes(selectedPlaylist.playlistId)
+                        ? 'fill-current text-white'
+                        : 'text-brand'
+                    }`}
+                  />
+                  <span>
+                    {favoritePlaylistIds.includes(selectedPlaylist.playlistId)
+                      ? 'Enregistrée'
+                      : 'Mettre en favoris'}
+                  </span>
+                </button>
+              )}
+
+              {selectedPlaylist.videos.length > 0 && (
+                <>
+                  <button
+                    onClick={() => onSelectVideo(selectedPlaylist.videos[0].videoId, selectedPlaylist.videos)}
+                    className="flex items-center gap-2 px-6 py-3 bg-brand hover:bg-brand-600 text-white rounded-2xl text-xs font-bold transition-all shadow-lg shadow-brand/25 cursor-pointer"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Tout lire</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const shuffled = [...selectedPlaylist.videos].sort(() => Math.random() - 0.5);
+                      onSelectVideo(shuffled[0].videoId, shuffled);
+                    }}
+                    className="flex items-center gap-2 px-5 py-3 bg-zen-surface hover:bg-zen-card border border-zen-border hover:border-brand/40 text-slate-200 hover:text-white rounded-2xl text-xs font-bold transition-all shadow-md cursor-pointer"
+                    title="Lire en mode aléatoire"
+                  >
+                    <Shuffle className="w-4 h-4 text-brand" />
+                    <span>Aléatoire</span>
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Playlist Videos Grid */}
@@ -590,6 +642,31 @@ export const ChannelView: React.FC<ChannelViewProps> = ({
                             {playlist.videoCount || 'Playlist'}
                           </span>
                         </div>
+                        {onToggleFavoritePlaylist && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleFavoritePlaylist(playlist);
+                            }}
+                            title={
+                              favoritePlaylistIds.includes(playlist.playlistId)
+                                ? 'Retirer des favoris'
+                                : 'Mettre en favoris'
+                            }
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                              favoritePlaylistIds.includes(playlist.playlistId)
+                                ? 'text-brand bg-brand/10'
+                                : 'text-slate-400 hover:text-white hover:bg-zen-surface'
+                            }`}
+                          >
+                            <Heart
+                              className={`w-4 h-4 ${
+                                favoritePlaylistIds.includes(playlist.playlistId) ? 'fill-current' : ''
+                              }`}
+                            />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -682,55 +759,77 @@ export const ChannelView: React.FC<ChannelViewProps> = ({
                 </div>
               ) : playlists.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-                  {playlists.map((playlist) => (
-                    <div
-                      key={playlist.playlistId}
-                      onClick={() => handleOpenPlaylist(playlist)}
-                      className="group flex flex-col bg-zen-card border border-zen-border hover:border-brand/40 rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-1 cursor-pointer"
-                    >
-                      {/* Playlist Thumbnail with Stacking Effect */}
-                      <div className="relative aspect-video w-full bg-zen-surface overflow-hidden">
-                        {playlist.thumbnailUrl ? (
-                          <img
-                            src={playlist.thumbnailUrl}
-                            alt=""
-                            referrerPolicy="no-referrer"
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-slate-900 text-slate-600">
-                            <ListMusic className="w-12 h-12" />
-                          </div>
-                        )}
+                  {playlists.map((playlist) => {
+                    const isFav = favoritePlaylistIds.includes(playlist.playlistId);
+                    return (
+                      <div
+                        key={playlist.playlistId}
+                        onClick={() => handleOpenPlaylist(playlist)}
+                        className="group flex flex-col bg-zen-card border border-zen-border hover:border-brand/40 rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-1 cursor-pointer relative"
+                      >
+                        {/* Playlist Thumbnail with Stacking Effect */}
+                        <div className="relative aspect-video w-full bg-zen-surface overflow-hidden">
+                          {playlist.thumbnailUrl ? (
+                            <img
+                              src={playlist.thumbnailUrl}
+                              alt=""
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-slate-900 text-slate-600">
+                              <ListMusic className="w-12 h-12" />
+                            </div>
+                          )}
 
-                        {/* Stacking layer badge overlay */}
-                        <div className="absolute right-2 bottom-2 px-2.5 py-1 bg-black/80 backdrop-blur-md rounded-lg text-[11px] font-semibold text-slate-200 flex items-center gap-1.5 border border-white/10 shadow-lg">
-                          <Layers className="w-3.5 h-3.5 text-brand" />
-                          <span>{playlist.videoCount || 'Playlist'}</span>
+                          {/* Stacking layer badge overlay */}
+                          <div className="absolute right-2 bottom-2 px-2.5 py-1 bg-black/80 backdrop-blur-md rounded-lg text-[11px] font-semibold text-slate-200 flex items-center gap-1.5 border border-white/10 shadow-lg">
+                            <Layers className="w-3.5 h-3.5 text-brand" />
+                            <span>{playlist.videoCount || 'Playlist'}</span>
+                          </div>
+
+                          {/* Hover Overlay "Ouvrir la playlist" */}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 text-white text-xs font-bold backdrop-blur-[2px]">
+                            <div className="w-10 h-10 rounded-full bg-brand flex items-center justify-center shadow-lg shadow-brand/50">
+                              <Play className="w-5 h-5 fill-current ml-0.5" />
+                            </div>
+                            <span>Ouvrir la playlist</span>
+                          </div>
+
+                          {/* Quick Favorite Button */}
+                          {onToggleFavoritePlaylist && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleFavoritePlaylist(playlist);
+                              }}
+                              title={isFav ? 'Retirer des favoris' : 'Mettre cette playlist en favoris'}
+                              className={`absolute top-2 right-2 p-2 rounded-xl backdrop-blur-md transition-all z-10 cursor-pointer ${
+                                isFav
+                                  ? 'bg-brand text-white shadow-md shadow-brand/30'
+                                  : 'bg-black/70 hover:bg-brand text-slate-200 hover:text-white opacity-0 group-hover:opacity-100'
+                              }`}
+                            >
+                              <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
+                            </button>
+                          )}
                         </div>
 
-                        {/* Hover Overlay "Tout lire" */}
-                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 text-white text-xs font-bold backdrop-blur-[2px]">
-                          <div className="w-10 h-10 rounded-full bg-brand flex items-center justify-center shadow-lg shadow-brand/50">
-                            <Play className="w-5 h-5 fill-current ml-0.5" />
+                        {/* Playlist Info */}
+                        <div className="p-4 flex flex-col gap-1.5 flex-1 justify-between">
+                          <h3 className="text-xs sm:text-sm font-bold text-slate-100 line-clamp-2 group-hover:text-brand transition-colors">
+                            {playlist.title}
+                          </h3>
+
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                            <span>{channel.author}</span>
+                            <span className="text-brand font-semibold">Afficher →</span>
                           </div>
-                          <span>Ouvrir la playlist</span>
                         </div>
                       </div>
-
-                      {/* Playlist Info */}
-                      <div className="p-4 flex flex-col gap-1.5 flex-1 justify-between">
-                        <h3 className="text-xs sm:text-sm font-bold text-slate-100 line-clamp-2 group-hover:text-brand transition-colors">
-                          {playlist.title}
-                        </h3>
-
-                        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
-                          <span>{channel.author}</span>
-                          <span className="text-brand font-semibold">Afficher →</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400 bg-zen-card/40 rounded-3xl border border-zen-border/40">

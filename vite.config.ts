@@ -1,5 +1,8 @@
 import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
+import path from 'path';
+import { exec } from 'child_process';
 
 // Custom Vite plugin providing search, metadata, suggestions, channel details, playlists, channel search & Invidious proxy endpoints
 function invidiousProxyPlugin(): Plugin {
@@ -48,6 +51,188 @@ function invidiousProxyPlugin(): Plugin {
           res.setHeader('Access-Control-Allow-Origin', '*');
           res.end(JSON.stringify([]));
         }
+      });
+
+      // Google Drive Status Endpoint /api/gdrive-status
+      server.middlewares.use('/api/gdrive-status', (_req: any, res: any) => {
+        console.log('>>> HIT /api/gdrive-status');
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ available: true }));
+      });
+
+      // Google Drive Sync Endpoint /api/gdrive-sync
+      server.middlewares.use('/api/gdrive-sync', async (req: any, res: any) => {
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.end(JSON.stringify({ error: 'Method not allowed' }));
+          return;
+        }
+
+        let body = '';
+        req.on('data', (chunk: any) => {
+          body += chunk;
+        });
+
+        req.on('end', async () => {
+          try {
+            const data = JSON.parse(body);
+            const backupDir = path.join(process.env.HOME || '/home/agnes', '.local/share/zentube');
+            if (!fs.existsSync(backupDir)) {
+              fs.mkdirSync(backupDir, { recursive: true });
+            }
+
+            const jsonPath = path.join(backupDir, 'zentube-favoris.json');
+            fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2), 'utf-8');
+
+            // Generate an elegant mobile-friendly HTML file with clickable links
+            const htmlContent = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mes Favoris ZenTube</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0c0f17; color: #f1f5f9; padding: 24px; max-width: 900px; margin: 0 auto; }
+    h1 { color: #ff0033; display: flex; align-items: center; gap: 10px; font-size: 24px; }
+    h2 { font-size: 18px; margin-top: 32px; border-bottom: 1px solid #1e293b; padding-bottom: 8px; color: #94a3b8; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 16px; }
+    .card { background: #151a28; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; text-decoration: none; color: inherit; transition: transform 0.2s, border-color 0.2s; display: flex; flex-direction: column; }
+    .card:hover { transform: translateY(-2px); border-color: #ff0033; }
+    .thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #000; }
+    .info { padding: 12px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+    .title { font-size: 14px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .author { font-size: 12px; color: #94a3b8; }
+    .badge { display: inline-block; font-size: 10px; font-weight: bold; background: #ff0033; color: white; padding: 2px 6px; border-radius: 4px; align-self: flex-start; margin-bottom: 4px; }
+    .footer { margin-top: 40px; text-align: center; font-size: 12px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <h1>🎬 Mes Favoris ZenTube</h1>
+  <p style="color: #94a3b8; font-size: 14px;">Sauvegarde synchronisée le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}</p>
+
+  <h2>📺 Vidéos Favorites (${data.favorites?.length || 0})</h2>
+  <div class="grid">
+    ${(data.favorites || [])
+      .map(
+        (v: any) => `
+      <a href="https://www.youtube.com/watch?v=${v.videoId}" target="_blank" rel="noopener" class="card">
+        <img class="thumb" src="${v.thumbnailUrl || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`}" loading="lazy" alt="" />
+        <div class="info">
+          <span class="title">${v.title || 'Vidéo'}</span>
+          <span class="author">${v.author || ''}</span>
+        </div>
+      </a>`
+      )
+      .join('')}
+  </div>
+
+  <h2>📋 Playlists Favorites (${data.favoritePlaylists?.length || 0})</h2>
+  <div class="grid">
+    ${(data.favoritePlaylists || [])
+      .map(
+        (p: any) => `
+      <a href="https://www.youtube.com/playlist?list=${p.playlistId}" target="_blank" rel="noopener" class="card">
+        <img class="thumb" src="${p.thumbnailUrl || ''}" loading="lazy" alt="" />
+        <div class="info">
+          <span class="badge">PLAYLIST (${p.videoCount || 0})</span>
+          <span class="title">${p.title || 'Playlist'}</span>
+          <span class="author">${p.author || ''}</span>
+        </div>
+      </a>`
+      )
+      .join('')}
+  </div>
+
+  <h2>📺 Chaînes & Abonnements (${data.subscriptions?.length || 0})</h2>
+  <div class="grid">
+    ${(data.subscriptions || [])
+      .map((s: any) => {
+        const id = typeof s === 'string' ? s : s.authorId || '';
+        const name = typeof s === 'string' ? (s.startsWith('@') ? s : 'Chaîne ' + s.slice(0, 8)) : s.author || 'Chaîne';
+        const thumb = typeof s === 'object' && s.authorThumbnail ? s.authorThumbnail : 'https://www.youtube.com/s/desktop/28dd0306/img/logos/favicon_144x144.png';
+        const link = id.startsWith('@') ? `https://www.youtube.com/${id}` : `https://www.youtube.com/channel/${id}`;
+        return `
+      <a href="${link}" target="_blank" rel="noopener" class="card" style="flex-direction: row; align-items: center; padding: 12px; gap: 12px;">
+        <img src="${thumb}" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: #242b3d;" loading="lazy" alt="" />
+        <div style="display: flex; flex-direction: column;">
+          <span class="title" style="font-size: 14px;">${name}</span>
+          <span style="font-size: 11px; color: #94a3b8;">${id}</span>
+        </div>
+      </a>`;
+      })
+      .join('')}
+  </div>
+
+  <div class="footer">
+    ZenTube - Sauvegardé automatiquement dans Google Drive / ZenTube
+  </div>
+</body>
+</html>`;
+
+            const htmlPath = path.join(backupDir, 'Mes_Favoris_ZenTube.html');
+            fs.writeFileSync(htmlPath, htmlContent, 'utf-8');
+
+            // Copy to Google Drive using rclone
+            exec(`rclone copy "${backupDir}" "gdrive:ZenTube/"`, (err) => {
+              if (err) {
+                res.statusCode = 500;
+                res.setHeader('Content-Type', 'application/json');
+                res.setHeader('Access-Control-Allow-Origin', '*');
+                res.end(JSON.stringify({ error: "Échec de l'envoi vers Google Drive." }));
+                return;
+              }
+
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/json');
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.end(
+                JSON.stringify({
+                  success: true,
+                  message: 'Favoris synchronisés sur Google Drive avec succès !',
+                })
+              );
+            });
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.end(JSON.stringify({ error: e.message }));
+          }
+        });
+      });
+
+      // Google Drive Restore Endpoint /api/gdrive-restore
+      server.middlewares.use('/api/gdrive-restore', async (_req: any, res: any) => {
+        exec(
+          'rclone cat "gdrive:ZenTube/zentube-favoris.json"',
+          { maxBuffer: 10 * 1024 * 1024 },
+          (err, stdout) => {
+            if (err) {
+              res.statusCode = 404;
+              res.setHeader('Content-Type', 'application/json');
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.end(
+                JSON.stringify({ error: 'Aucune sauvegarde trouvée dans le dossier Google Drive ZenTube.' })
+              );
+              return;
+            }
+
+            try {
+              const data = JSON.parse(stdout);
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/json');
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.end(JSON.stringify({ success: true, data }));
+            } catch {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.end(JSON.stringify({ error: 'Données de sauvegarde invalides.' }));
+            }
+          }
+        );
       });
 
       // 2. Direct Search Endpoint with Multi-batch Aggregation, Filters & Spelling Correction /api/search?q=...&date=...&sort=...

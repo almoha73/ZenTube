@@ -10,8 +10,9 @@ import {
   Sparkles,
   TrendingUp,
   CornerDownLeft,
+  ListMusic,
 } from 'lucide-react';
-import { extractYouTubeVideoId } from '../utils/formatters';
+import { extractYouTubeVideoId, extractYouTubePlaylistId } from '../utils/formatters';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { SearchHistoryItem } from '../types';
 import { invidiousApi } from '../services/invidiousApi';
@@ -19,12 +20,14 @@ import { invidiousApi } from '../services/invidiousApi';
 interface SearchBarProps {
   onSearch: (query: string) => void;
   onPlayVideo: (videoId: string) => void;
+  onOpenPlaylist?: (playlistId: string) => void;
   initialQuery?: string;
 }
 
 export const SearchBar: React.FC<SearchBarProps> = ({
   onSearch,
   onPlayVideo,
+  onOpenPlaylist,
   initialQuery = '',
 }) => {
   const [input, setInput] = useState(initialQuery);
@@ -41,6 +44,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const detectedVideoId = extractYouTubeVideoId(input);
+  const detectedPlaylistId = extractYouTubePlaylistId(input);
 
   useEffect(() => {
     setInput(initialQuery);
@@ -53,7 +57,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     }
 
     const trimmed = input.trim();
-    if (!trimmed || detectedVideoId) {
+    if (!trimmed || detectedVideoId || detectedPlaylistId) {
       setSuggestions([]);
       setSelectedIndex(-1);
       return;
@@ -74,7 +78,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  }, [input, detectedVideoId]);
+  }, [input, detectedVideoId, detectedPlaylistId]);
 
   // Handle outside click to close suggestions/history dropdown
   useEffect(() => {
@@ -92,6 +96,14 @@ export const SearchBar: React.FC<SearchBarProps> = ({
     (query: string) => {
       const q = query.trim();
       if (!q) return;
+
+      const extractedPlaylistId = extractYouTubePlaylistId(q);
+      if (extractedPlaylistId && onOpenPlaylist) {
+        onOpenPlaylist(extractedPlaylistId);
+        setIsFocused(false);
+        setSuggestions([]);
+        return;
+      }
 
       const extractedId = extractYouTubeVideoId(q);
       if (extractedId) {
@@ -112,7 +124,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
       setIsFocused(false);
       setSuggestions([]);
     },
-    [onPlayVideo, onSearch, setSearchHistory]
+    [onPlayVideo, onOpenPlaylist, onSearch, setSearchHistory]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -220,10 +232,25 @@ export const SearchBar: React.FC<SearchBarProps> = ({
                 onPlayVideo(detectedVideoId);
                 setIsFocused(false);
               }}
-              className="hidden sm:flex items-center gap-1.5 mr-2 px-2.5 py-1 bg-brand text-white rounded-xl text-xs font-semibold hover:bg-brand-600 transition-colors shadow-md"
+              className="hidden sm:flex items-center gap-1.5 mr-2 px-2.5 py-1 bg-brand text-white rounded-xl text-xs font-semibold hover:bg-brand-600 transition-colors shadow-md cursor-pointer"
             >
               <Play className="w-3 h-3 fill-current" />
               Lire directement
+            </button>
+          )}
+
+          {/* Direct Playlist URL badge */}
+          {detectedPlaylistId && (
+            <button
+              type="button"
+              onClick={() => {
+                if (onOpenPlaylist) onOpenPlaylist(detectedPlaylistId);
+                setIsFocused(false);
+              }}
+              className="hidden sm:flex items-center gap-1.5 mr-2 px-2.5 py-1 bg-brand text-white rounded-xl text-xs font-semibold hover:bg-brand-600 transition-colors shadow-md cursor-pointer"
+            >
+              <ListMusic className="w-3.5 h-3.5" />
+              Ouvrir playlist
             </button>
           )}
 
@@ -231,10 +258,18 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           <button
             type="submit"
             className="px-4 py-2.5 bg-zen-surface hover:bg-brand text-slate-300 hover:text-white border-l border-zen-border rounded-r-2xl text-sm font-medium transition-all duration-200 flex items-center justify-center cursor-pointer"
-            title={detectedVideoId ? 'Lire la vidéo' : 'Rechercher'}
+            title={
+              detectedVideoId
+                ? 'Lire la vidéo'
+                : detectedPlaylistId
+                ? 'Ouvrir la playlist'
+                : 'Rechercher'
+            }
           >
             {detectedVideoId ? (
               <Play className="w-4 h-4 fill-current text-brand group-hover:text-white" />
+            ) : detectedPlaylistId ? (
+              <ListMusic className="w-4 h-4 text-brand group-hover:text-white" />
             ) : (
               <ArrowRight className="w-4 h-4" />
             )}
@@ -243,7 +278,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
       </form>
 
       {/* Dropdown for Live Suggestions & Search History */}
-      {isFocused && !detectedVideoId && (
+      {isFocused && !detectedVideoId && !detectedPlaylistId && (
         <div className="absolute left-0 right-0 top-full mt-2 bg-zen-card/95 backdrop-blur-xl border border-zen-border rounded-2xl shadow-2xl overflow-hidden z-50 animate-slide-up">
           {/* Live Suggestions Section */}
           {suggestions.length > 0 ? (

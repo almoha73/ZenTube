@@ -183,6 +183,25 @@ export interface FavoriteItem {
   viewCount?: number;
 }
 
+export interface FavoritePlaylistItem {
+  playlistId: string;
+  title: string;
+  author: string;
+  authorId?: string;
+  thumbnailUrl?: string;
+  videoCount?: number | string;
+  savedAt: number;
+  firstVideoId?: string;
+  videos?: InvidiousVideoSummary[];
+}
+
+export interface SubscriptionItem {
+  authorId: string;
+  author: string;
+  authorThumbnail?: string;
+  subscribedAt?: number;
+}
+
 export interface SearchHistoryItem {
   query: string;
   timestamp: number;

@@ -21,9 +21,11 @@ import {
   Tv,
   Check,
   Sparkles,
+  Shuffle,
 } from 'lucide-react';
 import { InvidiousFormatStream, InvidiousVideoDetail } from '../types';
 import { formatDuration } from '../utils/formatters';
+import { DownloadModal } from './DownloadModal';
 
 interface VideoPlayerProps {
   video: InvidiousVideoDetail;
@@ -40,6 +42,8 @@ interface VideoPlayerProps {
   hasPreviousVideo?: boolean;
   isAutoplay?: boolean;
   onToggleAutoplay?: () => void;
+  isShuffle?: boolean;
+  onToggleShuffle?: () => void;
 }
 
 // Robust helper functions for true OS native fullscreen across all browser engines
@@ -110,6 +114,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   hasPreviousVideo = false,
   isAutoplay = true,
   onToggleAutoplay,
+  isShuffle = false,
+  onToggleShuffle,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -149,6 +155,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Menu toggles
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [settingsSubmenu, setSettingsSubmenu] = useState<'main' | 'quality' | 'speed'>('main');
+  const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
 
   // Compute available streams
   useEffect(() => {
@@ -389,6 +396,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         case 'f':
           e.preventDefault();
           toggleFullscreen();
+          break;
+        case 's':
+          e.preventDefault();
+          if (onToggleShuffle) onToggleShuffle();
           break;
         case 'm':
           e.preventDefault();
@@ -745,6 +756,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   </button>
                 )}
 
+                {/* Shuffle toggle */}
+                {onToggleShuffle && (
+                  <button
+                    type="button"
+                    onClick={onToggleShuffle}
+                    className={`p-1.5 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-xs font-semibold ${
+                      isShuffle
+                        ? 'text-brand bg-brand/15 ring-1 ring-brand/30'
+                        : 'text-slate-400 hover:text-white hover:bg-white/15'
+                    }`}
+                    title={
+                      isShuffle
+                        ? 'Lecture aléatoire activée (cliquez pour désactiver)'
+                        : 'Activer la lecture aléatoire (S)'
+                    }
+                  >
+                    <Shuffle className="w-4 h-4" />
+                    <span className="hidden xl:inline text-[10px] uppercase font-bold tracking-wider">
+                      Aléatoire
+                    </span>
+                  </button>
+                )}
+
                 {/* Loop toggle */}
                 <button
                   type="button"
@@ -798,20 +832,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                             </span>
                           </button>
 
-                          {selectedFormat?.url && (
-                            <a
-                              href={selectedFormat.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              download={`${video.title}.mp4`}
-                              className="flex items-center justify-between p-2 rounded-xl hover:bg-zen-surface text-slate-300 hover:text-white transition-colors"
-                            >
-                              <span className="flex items-center gap-1.5">
-                                <Download className="w-3.5 h-3.5 text-slate-400" />
-                                Télécharger le flux
-                              </span>
-                            </a>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsDownloadModalOpen(true);
+                              setShowSettingsMenu(false);
+                            }}
+                            className="flex items-center justify-between p-2 rounded-xl hover:bg-zen-surface text-slate-300 hover:text-white transition-colors text-left w-full cursor-pointer"
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <Download className="w-3.5 h-3.5 text-brand" />
+                              Télécharger (MP4 / MP3)
+                            </span>
+                          </button>
                         </div>
                       )}
 
@@ -929,6 +962,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Download Modal */}
+      <DownloadModal
+        isOpen={isDownloadModalOpen}
+        onClose={() => setIsDownloadModalOpen(false)}
+        video={video}
+      />
     </div>
   );
 };

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ZenTube</string>
+    <string name="title_activity_main">ZenTube</string>
+    <string name="package_name">com.almoha73.zentube</string>
+    <string name="custom_url_scheme">com.almoha73.zentube</string>
+</resources>

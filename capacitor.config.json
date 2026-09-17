@@ -1,0 +1,11 @@
+{
+  "appId": "com.almoha73.zentube",
+  "appName": "ZenTube",
+  "webDir": "dist",
+  "server": {
+    "allowNavigation": [
+      "*"
+    ],
+    "cleartext": true
+  }
+}
