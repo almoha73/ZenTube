@@ -4,6 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 
+import { cloudflare } from "@cloudflare/vite-plugin";
+
 // Custom Vite plugin providing search, metadata, suggestions, channel details, playlists, channel search & Invidious proxy endpoints
 function invidiousProxyPlugin(): Plugin {
   return {
@@ -1550,7 +1552,7 @@ function invidiousProxyPlugin(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react(), invidiousProxyPlugin()],
+  plugins: [react(), invidiousProxyPlugin(), cloudflare()],
   server: {
     port: 5173,
     host: true,

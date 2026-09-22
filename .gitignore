@@ -24,4 +24,12 @@ dist-ssr
 *.sw?
 *.tsbuildinfo
 vite.config.js
+vite.config.d.ts
 *.apk
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
